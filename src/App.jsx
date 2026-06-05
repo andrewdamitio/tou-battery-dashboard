@@ -438,11 +438,11 @@ export default function Dashboard() {
 
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-medium">3</span>Battery</p>
-            <div className="flex gap-2 items-center mb-3">
-              <select value={bat} onChange={(e) => setBat(e.target.value)} className="flex-1 p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
+            <div className="flex flex-col gap-2 mb-3">
+              <select value={bat} onChange={(e) => setBat(e.target.value)} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
                 {BCT.map((cat) => <optgroup key={cat.id} label={cat.n}>{BB.filter((b) => b.ct === cat.id).map((b) => <option key={b.id} value={b.id}>{b.n} \u2014 {b.kw.toFixed(2)} kWh, {b.pw} kW, {b.vo}V \u2014 ${b.c.toLocaleString()}</option>)}</optgroup>)}
               </select>
-              <button onClick={recommend} className="px-3 py-3 rounded-lg border border-zinc-300 dark:border-zinc-600 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"><i className="ti ti-sparkles" aria-hidden="true" /> Find best</button>
+              <button onClick={recommend} className="self-start px-3 py-3 rounded-lg border border-zinc-300 dark:border-zinc-600 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"><i className="ti ti-sparkles" aria-hidden="true" /> Find best</button>
             </div>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
               <DetailRow label="Capacity" value={`${curBat.kw.toFixed(2)} kWh`} />
