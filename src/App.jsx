@@ -274,6 +274,10 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-[680px] mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">TOU Battery Arbitrage Calculator</h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Estimate whether a plug-and-play home battery can pay for itself by charging during cheap off-peak hours and discharging during expensive on-peak windows — taking advantage of your utility's Time-of-Use rate spread to generate a return on investment over time.</p>
+      </div>
       <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700 mb-6">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>{t.label}</button>
