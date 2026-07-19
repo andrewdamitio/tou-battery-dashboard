@@ -1,3 +1,6 @@
 @import "@tabler/icons-webfont/dist/tabler-icons.min.css";
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+.font-display { font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+.font-data { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
