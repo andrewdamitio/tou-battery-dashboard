@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, Area, ResponsiveContainer, Legend, BarChart, Bar, Cell } from "recharts";
 
 const CATS = [
@@ -102,6 +102,8 @@ const PL = [
   { id: "pse", n: "Puget Sound Energy TOU", st: "WA", ev: false, sP: 17.5, sC: 9.0, wP: 17.5, wC: 9.0, sY: 183, wY: 182, inc: 0, ph: 3, phLabel: "6–9 PM daily" },
 ];
 
+const PL_SORTED = [...PL].sort((a, b) => a.n.localeCompare(b.n));
+
 const PROGRAMS = [
   { elig: "yes", title: "California ELRP (aggregator pathways)", status: "Live through 2027", region: "PG&E, SCE, SDG&E — May–Oct, 4–9 PM, up to 60 hrs/yr", body: "$2/kWh of load reduction measured at the customer's meter during CAISO grid emergencies, no penalty for non-performance. VPP aggregators (Group A.4) can enroll residential meters; the A.4/A.5 event window was cut from 5 to 3 hours by D.23-12-005. The consumer-facing Power Saver Rewards subgroup sunset after 2025 (rate lowered to $1/kWh in its final years; SDG&E stopped applications Nov 2025) — the aggregator pathway is the durable route.", pay: "$30–$60/yr realistic" },
   { elig: "yes", title: "PGE Peak Time Rebates", status: "Live", region: "Portland General Electric (OR) — summer Jun–Sep, winter Nov–Feb", body: "$1/kWh reduced below a 10-similar-day weather-adjusted baseline during ~3-hour Peak Time Events. No qualified-products list and no direct utility connection required — the meter is the measurement, so a non-export battery qualifies outright.", pay: "$15–$50/yr" },
@@ -127,17 +129,19 @@ const DR_ITEMS = [
 const RTE = 0.85;
 const LIFE = 10;
 
+const stateEligible = (allowedStates, planSt) => !allowedStates || allowedStates.length === 0 || allowedStates.includes(planSt);
+
 const drForPlan = (p2, drOn, drVal) => {
   return DR_ITEMS.reduce((s, d) => {
     if (!drOn[d.id]) return s;
-    if (d.st && !d.st.includes(p2.st)) return s;
+    if (!stateEligible(d.st, p2.st)) return s;
     return s + (drVal[d.id] || 0);
   }, 0);
 };
 
 const drItemEligible = (id, p2) => {
   const item = DR_ITEMS.find((d) => d.id === id);
-  return !item.st || item.st.includes(p2.st);
+  return stateEligible(item.st, p2.st);
 };
 
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -164,6 +168,32 @@ function DetailRow({ label, value }) {
     <div className="flex justify-between py-1 text-sm">
       <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
       <span className="font-medium text-zinc-900 dark:text-zinc-100">{value}</span>
+    </div>
+  );
+}
+
+function DrRow({ name, desc, eligible = true, ineligibleNote, checked, onCheck, step = 5, value, onValue, expanded, onToggleExpand, children }) {
+  return (
+    <div className="border-b border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-center gap-3 flex-wrap p-3">
+        <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${eligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
+          <input type="checkbox" checked={!!(checked && eligible)} disabled={!eligible} onChange={(e) => onCheck(e.target.checked)} className="w-4 h-4" />
+          {name}
+        </label>
+        <div className="flex items-center gap-1 text-sm">
+          <span className="text-zinc-400">$</span>
+          <input type="number" min={0} step={step} value={value} disabled={!eligible} onChange={(e) => onValue(Math.max(0, +e.target.value || 0))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
+          <span className="text-zinc-400">/yr</span>
+        </div>
+        <button onClick={onToggleExpand} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{expanded ? "hide" : "market data ▾"}</button>
+      </div>
+      <p className={`text-xs text-zinc-400 px-3 ${!eligible && ineligibleNote ? "pb-1" : "pb-2"}`}>{desc}</p>
+      {!eligible && ineligibleNote && <p className="text-xs text-zinc-400 px-3 pb-2">{ineligibleNote}</p>}
+      {expanded && (
+        <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -213,6 +243,20 @@ export default function Dashboard() {
   }, [plan, custom]);
 
   const curBat = useMemo(() => BB.find((b) => b.id === bat), [bat]);
+
+  useEffect(() => {
+    setDrOn((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const item of DR_ITEMS) {
+        if (prev[item.id] && !stateEligible(item.st, curPlan.st)) {
+          next[item.id] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [curPlan.st]);
 
   const appLoads = useCallback((ph) => {
     const base = bl(sq) * ph / 5;
@@ -296,7 +340,8 @@ export default function Dashboard() {
     const b = curBat, p = curPlan, r = result;
     const hw = b.c * hwPct / 100;
     const cppPot = p.cpp ? p.cpp.e * r.eS * p.cpp.a / 100 : 0;
-    const customEligible = !customDr.states.trim() || customDr.states.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).includes(p.st);
+    const customStates = customDr.states.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const customEligible = stateEligible(customStates, p.st);
     const customRev = customDr.on && customEligible ? customDr.value : 0;
     const drRev = (drOn.cpp ? cppPot : 0) + drForPlan(p, drOn, drVal) + customRev;
     const arb = r.gross;
@@ -406,7 +451,7 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-medium">1</span>TOU plan</p>
             <select value={plan} onChange={(e) => { setPlan(e.target.value); setCpp(false); setCppE(0); }} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
-              {[...PL].sort((a, b) => a.n.localeCompare(b.n)).map((pl) => <option key={pl.id} value={pl.id}>{pl.custom ? `-- ${pl.n} --` : `${pl.n} (${pl.st})${pl.ev ? " [EV req]" : ""}`}</option>)}
+              {PL_SORTED.map((pl) => <option key={pl.id} value={pl.id}>{pl.custom ? `-- ${pl.n} --` : `${pl.n} (${pl.st})${pl.ev ? " [EV req]" : ""}`}</option>)}
             </select>
             {p.ev && <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium flex items-center gap-2"><i className="ti ti-alert-triangle" aria-hidden="true" />Requires EV registration to enroll</div>}
             {p.cpp && !p.custom && (
@@ -778,147 +823,115 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {/* Peak Time Rebates */}
-                <div className="border-b border-zinc-200 dark:border-zinc-700">
-                  <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${ptrEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
-                      <input type="checkbox" checked={!!(drOn.ptr && ptrEligible)} disabled={!ptrEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, ptr: e.target.checked }))} className="w-4 h-4" />
-                      Peak Time Rebates (meter-based)
-                    </label>
-                    <div className="flex items-center gap-1 text-sm">
-                      <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={5} value={drVal.ptr} disabled={!ptrEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, ptr: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
-                      <span className="text-zinc-400">/yr</span>
+                <DrRow
+                  name="Peak Time Rebates (meter-based)"
+                  desc="A per-kWh bill credit for using less than your own recent-usage baseline during announced peak events. Meter-based — no qualified-hardware list, so a non-export battery qualifies outright."
+                  eligible={ptrEligible}
+                  ineligibleNote={`Not available on ${p.n} — live in OR, MD, MI, DE, IL`}
+                  checked={drOn.ptr}
+                  onCheck={(v) => setDrOn((prev) => ({ ...prev, ptr: v }))}
+                  value={drVal.ptr}
+                  onValue={(v) => setDrVal((prev) => ({ ...prev, ptr: v }))}
+                  expanded={drExp.ptr}
+                  onToggleExpand={() => setDrExp((prev) => ({ ...prev, ptr: !prev.ptr }))}
+                >
+                  <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">The best structural fit for a non-export fleet: pay for measured kWh reduction vs. a baseline, device-agnostic</div>
+                  <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">PGE Peak Time Rebates (OR)</span><span>$1/kWh vs 10-day weather-adjusted baseline; summer + winter events; no qualified-product list</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">BGE Energy Savings Days (MD)</span><span>$1.25/kWh vs baseline; weekday ~2–6 PM; stackable with Connected Rewards in 2026</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Consumers Energy (MI)</span><span>$1/kWh; up to 14 summer events, 2–6 PM</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Delmarva (DE)</span><span>$1.25/kWh vs personal baseline</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">ComEd Peak Time Savings (IL)</span><span>Per-kWh credit vs baseline; smart-meter auto-enroll; can't combine with AC Cycling</span>
                     </div>
-                    <button onClick={() => setDrExp((prev) => ({ ...prev, ptr: !prev.ptr }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.ptr ? "hide" : "market data ▾"}</button>
+                    <p className="mt-1"><span className="font-medium text-zinc-700 dark:text-zinc-300">Math:</span> 3 kWh shifted × $1–$1.25/kWh × 8–14 events ≈ $25–$50/yr per unit. Conservative underwriting: $30–$50/yr in PTR territories, $0 elsewhere.</p>
                   </div>
-                  <p className="text-xs text-zinc-400 px-3 pb-1">A per-kWh bill credit for using less than your own recent-usage baseline during announced peak events. Meter-based — no qualified-hardware list, so a non-export battery qualifies outright.</p>
-                  {!ptrEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in OR, MD, MI, DE, IL</p>}
-                  {drExp.ptr && (
-                    <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
-                      <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">The best structural fit for a non-export fleet: pay for measured kWh reduction vs. a baseline, device-agnostic</div>
-                      <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">PGE Peak Time Rebates (OR)</span><span>$1/kWh vs 10-day weather-adjusted baseline; summer + winter events; no qualified-product list</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">BGE Energy Savings Days (MD)</span><span>$1.25/kWh vs baseline; weekday ~2–6 PM; stackable with Connected Rewards in 2026</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">Consumers Energy (MI)</span><span>$1/kWh; up to 14 summer events, 2–6 PM</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">Delmarva (DE)</span><span>$1.25/kWh vs personal baseline</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">ComEd Peak Time Savings (IL)</span><span>Per-kWh credit vs baseline; smart-meter auto-enroll; can't combine with AC Cycling</span>
-                        </div>
-                        <p className="mt-1"><span className="font-medium text-zinc-700 dark:text-zinc-300">Math:</span> 3 kWh shifted × $1–$1.25/kWh × 8–14 events ≈ $25–$50/yr per unit. Conservative underwriting: $30–$50/yr in PTR territories, $0 elsewhere.</p>
-                      </div>
-                      <div className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-1">
-                        <p>Two structural caveats. <span className="font-medium text-zinc-600 dark:text-zinc-300">Baseline erosion:</span> payment is measured against the customer's own recent usage — a battery that shifts load every day lowers the baseline over time, shrinking measured "reduction." Reserve routine cycling for arbitrage and dispatch hardest on event days. <span className="font-medium text-zinc-600 dark:text-zinc-300">Enrollment:</span> these tariffs pay the account holder, not an aggregator — the operator captures the value contractually (service agreement assigns the credit), and each tariff needs legal review for assignment terms before scaling.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  <div className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-1">
+                    <p>Two structural caveats. <span className="font-medium text-zinc-600 dark:text-zinc-300">Baseline erosion:</span> payment is measured against the customer's own recent usage — a battery that shifts load every day lowers the baseline over time, shrinking measured "reduction." Reserve routine cycling for arbitrage and dispatch hardest on event days. <span className="font-medium text-zinc-600 dark:text-zinc-300">Enrollment:</span> these tariffs pay the account holder, not an aggregator — the operator captures the value contractually (service agreement assigns the credit), and each tariff needs legal review for assignment terms before scaling.</p>
+                  </div>
+                </DrRow>
 
-                {/* ELRP */}
-                <div className="border-b border-zinc-200 dark:border-zinc-700">
-                  <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${elrpEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
-                      <input type="checkbox" checked={!!(drOn.elrp && elrpEligible)} disabled={!elrpEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, elrp: e.target.checked }))} className="w-4 h-4" />
-                      Emergency DR (ELRP-style)
-                    </label>
-                    <div className="flex items-center gap-1 text-sm">
-                      <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={5} value={drVal.elrp} disabled={!elrpEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, elrp: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
-                      <span className="text-zinc-400">/yr</span>
-                    </div>
-                    <button onClick={() => setDrExp((prev) => ({ ...prev, elrp: !prev.elrp }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.elrp ? "hide" : "market data ▾"}</button>
+                <DrRow
+                  name="Emergency DR (ELRP-style)"
+                  desc="California's emergency grid-response program — a flat $/kWh payment for verified load reduction during CAISO-triggered grid emergencies, a handful of times a year, no penalty for skipping one."
+                  eligible={elrpEligible}
+                  ineligibleNote={`Not available on ${p.n} — live in CA only`}
+                  checked={drOn.elrp}
+                  onCheck={(v) => setDrOn((prev) => ({ ...prev, elrp: v }))}
+                  value={drVal.elrp}
+                  onValue={(v) => setDrVal((prev) => ({ ...prev, elrp: v }))}
+                  expanded={drExp.elrp}
+                  onToggleExpand={() => setDrExp((prev) => ({ ...prev, elrp: !prev.elrp }))}
+                >
+                  <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">California ELRP — the reference program</div>
+                  <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
+                    <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Rate:</span> $2/kWh of load reduction measured at the customer's meter (set in CPUC D.21-12-015); no penalty for non-performance</p>
+                    <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Window:</span> May–Oct, 4–9 PM, up to 60 hrs/yr, triggered by CAISO emergency alerts. D.23-12-005 cut the VPP/VGI aggregator (A.4/A.5) event window from 5 hrs to 3 hrs</p>
+                    <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Territories:</span> PG&E, SCE, SDG&E. Pilot extended through 2027 for aggregator pathways</p>
+                    <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Residential caveat:</span> the consumer-facing Power Saver Rewards subgroup sunset after the 2025 season — rate lowered to $1/kWh in its final years, and SDG&E stopped applications Nov 2025. The VPP aggregator pathway (Group A.4) is the durable enrollment route for a fleet</p>
+                    <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Math:</span> 3 kWh/event × $2/kWh × 5–10 events ≈ $30–$60/yr. More in an active grid-emergency year; near zero in a mild one</p>
                   </div>
-                  <p className="text-xs text-zinc-400 px-3 pb-1">California's emergency grid-response program — a flat $/kWh payment for verified load reduction during CAISO-triggered grid emergencies, a handful of times a year, no penalty for skipping one.</p>
-                  {!elrpEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in CA only</p>}
-                  {drExp.elrp && (
-                    <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
-                      <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">California ELRP — the reference program</div>
-                      <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
-                        <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Rate:</span> $2/kWh of load reduction measured at the customer's meter (set in CPUC D.21-12-015); no penalty for non-performance</p>
-                        <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Window:</span> May–Oct, 4–9 PM, up to 60 hrs/yr, triggered by CAISO emergency alerts. D.23-12-005 cut the VPP/VGI aggregator (A.4/A.5) event window from 5 hrs to 3 hrs</p>
-                        <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Territories:</span> PG&E, SCE, SDG&E. Pilot extended through 2027 for aggregator pathways</p>
-                        <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Residential caveat:</span> the consumer-facing Power Saver Rewards subgroup sunset after the 2025 season — rate lowered to $1/kWh in its final years, and SDG&E stopped applications Nov 2025. The VPP aggregator pathway (Group A.4) is the durable enrollment route for a fleet</p>
-                        <p><span className="font-medium text-zinc-700 dark:text-zinc-300">Math:</span> 3 kWh/event × $2/kWh × 5–10 events ≈ $30–$60/yr. More in an active grid-emergency year; near zero in a mild one</p>
-                      </div>
-                      <p className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800">Measurement is meter-based (5-in-10 baseline with same-day adjustment) — a non-export battery powering loads qualifies directly. Olivine administers ELRP and is also a CAISO scheduling coordinator, making it a natural aggregation partner for the same fleet.</p>
-                    </div>
-                  )}
-                </div>
+                  <p className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800">Measurement is meter-based (5-in-10 baseline with same-day adjustment) — a non-export battery powering loads qualifies directly. Olivine administers ELRP and is also a CAISO scheduling coordinator, making it a natural aggregation partner for the same fleet.</p>
+                </DrRow>
 
-                {/* Coincident Peak */}
-                <div className="border-b border-zinc-200 dark:border-zinc-700">
-                  <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${cpkEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
-                      <input type="checkbox" checked={!!(drOn.cpk && cpkEligible)} disabled={!cpkEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, cpk: e.target.checked }))} className="w-4 h-4" />
-                      Coincident peak avoidance
-                    </label>
-                    <div className="flex items-center gap-1 text-sm">
-                      <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={10} value={drVal.cpk} disabled={!cpkEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, cpk: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
-                      <span className="text-zinc-400">/yr</span>
+                <DrRow
+                  name="Coincident peak avoidance"
+                  desc="Grid operators set your capacity charge from usage during a handful of retroactively-identified system peak hours each year. Staying low during those hours shrinks that charge — indirect, via the supply rate, and smaller than a direct rebate, but real."
+                  eligible={cpkEligible}
+                  ineligibleNote={`Not available on ${p.n} — live in IL, MD, VA, NY, MA, DE`}
+                  checked={drOn.cpk}
+                  onCheck={(v) => setDrOn((prev) => ({ ...prev, cpk: v }))}
+                  step={10}
+                  value={drVal.cpk}
+                  onValue={(v) => setDrVal((prev) => ({ ...prev, cpk: v }))}
+                  expanded={drExp.cpk}
+                  onToggleExpand={() => setDrExp((prev) => ({ ...prev, cpk: !prev.cpk }))}
+                >
+                  <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Capacity-tag suppression — real but smaller and more indirect than it first looks</div>
+                  <div className="space-y-2 text-zinc-500 dark:text-zinc-400">
+                    <div>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">PJM (5CP) — ComEd, BGE, Pepco, Dominion + all PJM</span>
+                      <p>Capacity cleared at the FERC-approved cap of $329.17/MW-day for 2026/27 and $333.44/MW-day for 2027/28 — the third consecutive record auction. A customer's capacity obligation (PLC) is set by usage during PJM's five highest summer peak hours, identified retroactively.</p>
+                      <p className="mt-1">The catch for residential: this value flows through capacity charges embedded in supply rates, and generally requires a rate that passes capacity through (ComEd Hourly Pricing / Rate BESH, or a competitive supplier that credits PLC reductions) to actually monetize. Realistic per-unit: <span className="font-medium text-zinc-700 dark:text-zinc-300">$20–$60/yr</span> — meaningful as a stack layer, not a headline.</p>
                     </div>
-                    <button onClick={() => setDrExp((prev) => ({ ...prev, cpk: !prev.cpk }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.cpk ? "hide" : "market data ▾"}</button>
+                    <div>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">ERCOT (4CP) — not a residential mechanism</span>
+                      <p>4CP transmission cost allocation applies to large commercial and industrial customers. Residential Texas customers have no 4CP tag to suppress — don't underwrite any 4CP value on a residential fleet. (Texas residential value lives in the retail plan spread and REP-run DR instead.)</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">NYISO (ICAP) — ConEd, PSEG-LI</span>
+                      <p>Peak-hour usage feeds ICAP tags with similar supply-rate passthrough dynamics. Same story as PJM at somewhat lower capacity prices: a modest, indirect stack layer.</p>
+                    </div>
                   </div>
-                  <p className="text-xs text-zinc-400 px-3 pb-1">Grid operators set your capacity charge from usage during a handful of retroactively-identified system peak hours each year. Staying low during those hours shrinks that charge — indirect, via the supply rate, and smaller than a direct rebate, but real.</p>
-                  {!cpkEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in IL, MD, VA, NY, MA, DE</p>}
-                  {drExp.cpk && (
-                    <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
-                      <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Capacity-tag suppression — real but smaller and more indirect than it first looks</div>
-                      <div className="space-y-2 text-zinc-500 dark:text-zinc-400">
-                        <div>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">PJM (5CP) — ComEd, BGE, Pepco, Dominion + all PJM</span>
-                          <p>Capacity cleared at the FERC-approved cap of $329.17/MW-day for 2026/27 and $333.44/MW-day for 2027/28 — the third consecutive record auction. A customer's capacity obligation (PLC) is set by usage during PJM's five highest summer peak hours, identified retroactively.</p>
-                          <p className="mt-1">The catch for residential: this value flows through capacity charges embedded in supply rates, and generally requires a rate that passes capacity through (ComEd Hourly Pricing / Rate BESH, or a competitive supplier that credits PLC reductions) to actually monetize. Realistic per-unit: <span className="font-medium text-zinc-700 dark:text-zinc-300">$20–$60/yr</span> — meaningful as a stack layer, not a headline.</p>
-                        </div>
-                        <div>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">ERCOT (4CP) — not a residential mechanism</span>
-                          <p>4CP transmission cost allocation applies to large commercial and industrial customers. Residential Texas customers have no 4CP tag to suppress — don't underwrite any 4CP value on a residential fleet. (Texas residential value lives in the retail plan spread and REP-run DR instead.)</p>
-                        </div>
-                        <div>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">NYISO (ICAP) — ConEd, PSEG-LI</span>
-                          <p>Peak-hour usage feeds ICAP tags with similar supply-rate passthrough dynamics. Same story as PJM at somewhat lower capacity prices: a modest, indirect stack layer.</p>
-                        </div>
-                      </div>
-                      <p className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800">The aggregator's edge is still real: hitting the 5 retroactively-identified peak hours requires weather monitoring and load forecasting no homeowner will do, and a fleet operator with telemetry will catch most of them. But treat this as $20–$60/yr of indirect value on passthrough rates — the earlier-cycle framing of $100–$300/yr assumed wholesale-level capture residential customers can't access directly.</p>
-                    </div>
-                  )}
-                </div>
+                  <p className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800">The aggregator's edge is still real: hitting the 5 retroactively-identified peak hours requires weather monitoring and load forecasting no homeowner will do, and a fleet operator with telemetry will catch most of them. But treat this as $20–$60/yr of indirect value on passthrough rates — the earlier-cycle framing of $100–$300/yr assumed wholesale-level capture residential customers can't access directly.</p>
+                </DrRow>
 
-                {/* DR stacking */}
-                <div className="border-b border-zinc-200 dark:border-zinc-700">
-                  <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-zinc-900 dark:text-zinc-100 min-w-[220px] text-sm">
-                      <input type="checkbox" checked={!!drOn.thermo} onChange={(e) => setDrOn((prev) => ({ ...prev, thermo: e.target.checked }))} className="w-4 h-4" />
-                      DR program stacking
-                    </label>
-                    <div className="flex items-center gap-1 text-sm">
-                      <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={5} value={drVal.thermo} onChange={(e) => setDrVal((prev) => ({ ...prev, thermo: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
-                      <span className="text-zinc-400">/yr</span>
+                <DrRow
+                  name="DR program stacking"
+                  desc="Generic thermostat/AC-cycling demand-response programs many utilities run — a battery can serve the curtailed load instead, so the house stays comfortable and the meter still reads lower. Unlike the three rows above, this isn't tied to a specific state list in the model — it's a conservative nationwide placeholder, so it never grays out. Verify local program availability before underwriting it."
+                  checked={drOn.thermo}
+                  onCheck={(v) => setDrOn((prev) => ({ ...prev, thermo: v }))}
+                  value={drVal.thermo}
+                  onValue={(v) => setDrVal((prev) => ({ ...prev, thermo: v }))}
+                  expanded={drExp.thermo}
+                  onToggleExpand={() => setDrExp((prev) => ({ ...prev, thermo: !prev.thermo }))}
+                >
+                  <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thermostat-style DR and aggregator platforms the battery can serve</div>
+                  <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
+                    <p>These programs pay for using less grid power during peak events. Normally they adjust a thermostat or cycle an AC; a battery can serve the load instead, so the house stays comfortable and the meter still reads lower.</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Renew Home / OhmConnect (CA)</span><span>Meter-based "Watts" for load reduction — device-agnostic, but B2C (pays the resident, modest payouts); exited Texas retail in 2026</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">SCE SmartShift / SmartAC</span><span>$50–$150/yr</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">PG&E SmartAC</span><span>$50–$100/yr; cannot combine with SmartRate</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Xcel AC Rewards (CO/MN)</span><span>$25–$40/yr, device-specific</span>
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Generic utility thermostat DR</span><span>$40–$200/yr nationwide, usually device-specific</span>
                     </div>
-                    <button onClick={() => setDrExp((prev) => ({ ...prev, thermo: !prev.thermo }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.thermo ? "hide" : "market data ▾"}</button>
                   </div>
-                  <p className="text-xs text-zinc-400 px-3 pb-2">Generic thermostat/AC-cycling demand-response programs many utilities run — a battery can serve the curtailed load instead, so the house stays comfortable and the meter still reads lower. Unlike the three rows above, this isn't tied to a specific state list in the model — it's a conservative nationwide placeholder, so it never grays out. Verify local program availability before underwriting it.</p>
-                  {drExp.thermo && (
-                    <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
-                      <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thermostat-style DR and aggregator platforms the battery can serve</div>
-                      <div className="space-y-1 text-zinc-500 dark:text-zinc-400">
-                        <p>These programs pay for using less grid power during peak events. Normally they adjust a thermostat or cycle an AC; a battery can serve the load instead, so the house stays comfortable and the meter still reads lower.</p>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">Renew Home / OhmConnect (CA)</span><span>Meter-based "Watts" for load reduction — device-agnostic, but B2C (pays the resident, modest payouts); exited Texas retail in 2026</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">SCE SmartShift / SmartAC</span><span>$50–$150/yr</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">PG&E SmartAC</span><span>$50–$100/yr; cannot combine with SmartRate</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">Xcel AC Rewards (CO/MN)</span><span>$25–$40/yr, device-specific</span>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">Generic utility thermostat DR</span><span>$40–$200/yr nationwide, usually device-specific</span>
-                        </div>
-                      </div>
-                      <div className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-1">
-                        <p>Watch the eligibility fine print: many of these credit a specific device (thermostat, AC switch), not the meter — the battery only stacks where measurement is meter-based or the battery serves the curtailed load. Most CA IOUs also limit customers to one energy-incentive program at a time (CPUC D.18-11-029).</p>
-                        <p>The fleet-scale version of this line is wholesale aggregation under FERC Order 2222: CAISO (live since Nov 2024) and NYISO (live since Apr 2024) accept load-reduction-only residential aggregations of ~100 kW+ via aggregators like Leap or Olivine — negotiated revenue share. PJM is delayed to Feb 2028; MISO to 2027–29. Conservative underwriting for this row: $40–$80/yr where programs exist, $0 elsewhere.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  <div className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-1">
+                    <p>Watch the eligibility fine print: many of these credit a specific device (thermostat, AC switch), not the meter — the battery only stacks where measurement is meter-based or the battery serves the curtailed load. Most CA IOUs also limit customers to one energy-incentive program at a time (CPUC D.18-11-029).</p>
+                    <p>The fleet-scale version of this line is wholesale aggregation under FERC Order 2222: CAISO (live since Nov 2024) and NYISO (live since Apr 2024) accept load-reduction-only residential aggregations of ~100 kW+ via aggregators like Leap or Olivine — negotiated revenue share. PJM is delayed to Feb 2028; MISO to 2027–29. Conservative underwriting for this row: $40–$80/yr where programs exist, $0 elsewhere.</p>
+                  </div>
+                </DrRow>
 
                 {/* Custom hypothetical program */}
                 <div className="border-b border-zinc-200 dark:border-zinc-700">
