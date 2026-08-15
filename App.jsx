@@ -135,6 +135,11 @@ const drForPlan = (p2, drOn, drVal) => {
   }, 0);
 };
 
+const drItemEligible = (id, p2) => {
+  const item = DR_ITEMS.find((d) => d.id === id);
+  return !item.st || item.st.includes(p2.st);
+};
+
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const SUMMER_MONTHS = [4, 5, 6, 7, 8]; // May–Sep indexes
 const WINTER_MONTHS = [0, 1, 2, 10, 11]; // Jan–Mar, Nov–Dec
@@ -197,6 +202,7 @@ export default function Dashboard() {
   const [drOn, setDrOn] = useState({ cpp: true, ptr: false, elrp: false, cpk: false, thermo: false });
   const [drVal, setDrVal] = useState({ ptr: 40, elrp: 50, cpk: 40, thermo: 50 });
   const [drExp, setDrExp] = useState({});
+  const [customDr, setCustomDr] = useState({ on: false, name: "Custom program", value: 100, states: "" });
   const [units, setUnits] = useState(1000);
   const [monthlyKwh, setMonthlyKwh] = useState(Array(12).fill(""));
   const [monthlyShare, setMonthlyShare] = useState(30);
@@ -290,7 +296,9 @@ export default function Dashboard() {
     const b = curBat, p = curPlan, r = result;
     const hw = b.c * hwPct / 100;
     const cppPot = p.cpp ? p.cpp.e * r.eS * p.cpp.a / 100 : 0;
-    const drRev = (drOn.cpp ? cppPot : 0) + drForPlan(p, drOn, drVal);
+    const customEligible = !customDr.states.trim() || customDr.states.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).includes(p.st);
+    const customRev = customDr.on && customEligible ? customDr.value : 0;
+    const drRev = (drOn.cpp ? cppPot : 0) + drForPlan(p, drOn, drVal) + customRev;
     const arb = r.gross;
     const planFee = (p.inc || 0) * 12;
     const subAnnual = subFee * 12, svcAnnual = svc * 12;
@@ -316,8 +324,8 @@ export default function Dashboard() {
       data.push({ year: "Y" + y, op: Math.round(opCum), ho: Math.round(hoCum) });
       if (pbYr === Infinity && opCum >= 0) pbYr = y - 1 + (-prevOp) / (opCum - prevOp || 1);
     }
-    return { hw, cppPot, drRev, arb, opY0, opYr1, hoYr1, opLt: Math.round(opCum), hoLt: Math.round(hoCum), pb: pbYr === Infinity ? Infinity : Math.round(pbYr * 10) / 10, data };
-  }, [curBat, curPlan, result, hwPct, cac, svc, churn, bizModel, subFee, splitPct, upfront, drOn, drVal, esc]);
+    return { hw, cppPot, drRev, arb, opY0, opYr1, hoYr1, opLt: Math.round(opCum), hoLt: Math.round(hoCum), pb: pbYr === Infinity ? Infinity : Math.round(pbYr * 10) / 10, data, customEligible };
+  }, [curBat, curPlan, result, hwPct, cac, svc, churn, bizModel, subFee, splitPct, upfront, drOn, drVal, esc, customDr]);
 
   const recommend = () => {
     const p = curPlan;
@@ -658,6 +666,9 @@ export default function Dashboard() {
         const oo = opResult;
         const dealHo = oo.hoYr1 > 0;
         const dealOp = oo.pb !== Infinity && oo.pb <= LIFE;
+        const ptrEligible = drItemEligible("ptr", p);
+        const elrpEligible = drItemEligible("elrp", p);
+        const cpkEligible = drItemEligible("cpk", p);
         return (
           <div>
             <div className={`text-center py-6 px-6 rounded-xl mb-5 ${dealHo && dealOp ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
@@ -776,17 +787,18 @@ export default function Dashboard() {
                 {/* Peak Time Rebates */}
                 <div className="border-b border-zinc-200 dark:border-zinc-700">
                   <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-zinc-900 dark:text-zinc-100 min-w-[220px] text-sm">
-                      <input type="checkbox" checked={!!drOn.ptr} onChange={(e) => setDrOn((prev) => ({ ...prev, ptr: e.target.checked }))} className="w-4 h-4" />
+                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${ptrEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
+                      <input type="checkbox" checked={!!(drOn.ptr && ptrEligible)} disabled={!ptrEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, ptr: e.target.checked }))} className="w-4 h-4" />
                       Peak Time Rebates (meter-based)
                     </label>
                     <div className="flex items-center gap-1 text-sm">
                       <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={5} value={drVal.ptr} onChange={(e) => setDrVal((prev) => ({ ...prev, ptr: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                      <input type="number" min={0} step={5} value={drVal.ptr} disabled={!ptrEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, ptr: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
                       <span className="text-zinc-400">/yr</span>
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, ptr: !prev.ptr }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.ptr ? "hide" : "market data ▾"}</button>
                   </div>
+                  {!ptrEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in OR, MD, MI, DE, IL</p>}
                   {drExp.ptr && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
                       <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">The best structural fit for a non-export fleet: pay for measured kWh reduction vs. a baseline, device-agnostic</div>
@@ -810,17 +822,18 @@ export default function Dashboard() {
                 {/* ELRP */}
                 <div className="border-b border-zinc-200 dark:border-zinc-700">
                   <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-zinc-900 dark:text-zinc-100 min-w-[220px] text-sm">
-                      <input type="checkbox" checked={!!drOn.elrp} onChange={(e) => setDrOn((prev) => ({ ...prev, elrp: e.target.checked }))} className="w-4 h-4" />
+                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${elrpEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
+                      <input type="checkbox" checked={!!(drOn.elrp && elrpEligible)} disabled={!elrpEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, elrp: e.target.checked }))} className="w-4 h-4" />
                       Emergency DR (ELRP-style)
                     </label>
                     <div className="flex items-center gap-1 text-sm">
                       <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={5} value={drVal.elrp} onChange={(e) => setDrVal((prev) => ({ ...prev, elrp: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                      <input type="number" min={0} step={5} value={drVal.elrp} disabled={!elrpEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, elrp: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
                       <span className="text-zinc-400">/yr</span>
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, elrp: !prev.elrp }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.elrp ? "hide" : "market data ▾"}</button>
                   </div>
+                  {!elrpEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in CA only</p>}
                   {drExp.elrp && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
                       <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">California ELRP — the reference program</div>
@@ -839,17 +852,18 @@ export default function Dashboard() {
                 {/* Coincident Peak */}
                 <div className="border-b border-zinc-200 dark:border-zinc-700">
                   <div className="flex items-center gap-3 flex-wrap p-3">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-zinc-900 dark:text-zinc-100 min-w-[220px] text-sm">
-                      <input type="checkbox" checked={!!drOn.cpk} onChange={(e) => setDrOn((prev) => ({ ...prev, cpk: e.target.checked }))} className="w-4 h-4" />
+                    <label className={`flex items-center gap-2 font-medium min-w-[220px] text-sm ${cpkEligible ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
+                      <input type="checkbox" checked={!!(drOn.cpk && cpkEligible)} disabled={!cpkEligible} onChange={(e) => setDrOn((prev) => ({ ...prev, cpk: e.target.checked }))} className="w-4 h-4" />
                       Coincident peak avoidance
                     </label>
                     <div className="flex items-center gap-1 text-sm">
                       <span className="text-zinc-400">$</span>
-                      <input type="number" min={0} step={10} value={drVal.cpk} onChange={(e) => setDrVal((prev) => ({ ...prev, cpk: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                      <input type="number" min={0} step={10} value={drVal.cpk} disabled={!cpkEligible} onChange={(e) => setDrVal((prev) => ({ ...prev, cpk: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 disabled:opacity-50" />
                       <span className="text-zinc-400">/yr</span>
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, cpk: !prev.cpk }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.cpk ? "hide" : "market data ▾"}</button>
                   </div>
+                  {!cpkEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in IL, MD, VA, NY, MA, DE</p>}
                   {drExp.cpk && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
                       <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Capacity-tag suppression — real but smaller and more indirect than it first looks</div>
@@ -903,6 +917,33 @@ export default function Dashboard() {
                       <div className="text-zinc-400 dark:text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-1">
                         <p>Watch the eligibility fine print: many of these credit a specific device (thermostat, AC switch), not the meter — the battery only stacks where measurement is meter-based or the battery serves the curtailed load. Most CA IOUs also limit customers to one energy-incentive program at a time (CPUC D.18-11-029).</p>
                         <p>The fleet-scale version of this line is wholesale aggregation under FERC Order 2222: CAISO (live since Nov 2024) and NYISO (live since Apr 2024) accept load-reduction-only residential aggregations of ~100 kW+ via aggregators like Leap or Olivine — negotiated revenue share. PJM is delayed to Feb 2028; MISO to 2027–29. Conservative underwriting for this row: $40–$80/yr where programs exist, $0 elsewhere.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom hypothetical program */}
+                <div className="border-b border-zinc-200 dark:border-zinc-700">
+                  <div className="flex items-center gap-3 flex-wrap p-3">
+                    <div className="flex items-center gap-2 min-w-[220px]">
+                      <input type="checkbox" checked={!!customDr.on} onChange={(e) => setCustomDr((prev) => ({ ...prev, on: e.target.checked }))} className="w-4 h-4" />
+                      <input type="text" value={customDr.name} onChange={(e) => setCustomDr((prev) => ({ ...prev, name: e.target.value }))} className="p-1 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 w-full font-medium text-zinc-900 dark:text-zinc-100" placeholder="Program name" />
+                    </div>
+                    <div className="flex items-center gap-1 text-sm">
+                      <span className="text-zinc-400">$</span>
+                      <input type="number" min={0} step={5} value={customDr.value} onChange={(e) => setCustomDr((prev) => ({ ...prev, value: Math.max(0, +e.target.value || 0) }))} className="p-1.5 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                      <span className="text-zinc-400">/yr</span>
+                    </div>
+                    <button onClick={() => setDrExp((prev) => ({ ...prev, custom: !prev.custom }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.custom ? "hide" : "rules ▾"}</button>
+                  </div>
+                  {customDr.on && <p className={`text-xs px-3 pb-2 ${oo.customEligible ? "text-green-600" : "text-zinc-400"}`}>{oo.customEligible ? `+${fm(customDr.value)}/yr — applies on ${p.n}` : `n/a on ${p.n} (${p.st}) — restricted to ${customDr.states}`}</p>}
+                  {drExp.custom && (
+                    <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-2 border border-zinc-200 dark:border-zinc-700">
+                      <div className="font-medium text-zinc-700 dark:text-zinc-300">Model a hypothetical program</div>
+                      <p className="text-zinc-500 dark:text-zinc-400">Sandbox a program that doesn't exist yet — a rate case in progress, a pilot you're pitching, a structure a state is considering. Set the name and annual per-unit value above; restrict it to specific states below, or leave blank to apply everywhere.</p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-zinc-500 dark:text-zinc-400 min-w-[110px]">Eligible states</span>
+                        <input type="text" value={customDr.states} onChange={(e) => setCustomDr((prev) => ({ ...prev, states: e.target.value }))} placeholder="e.g. OR, WA — blank = all states" className="flex-1 p-1.5 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
                       </div>
                     </div>
                   )}
