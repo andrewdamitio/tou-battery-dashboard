@@ -406,7 +406,7 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-medium">1</span>TOU plan</p>
             <select value={plan} onChange={(e) => { setPlan(e.target.value); setCpp(false); setCppE(0); }} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
-              {PL.map((pl) => <option key={pl.id} value={pl.id} className={pl.custom ? "font-bold" : ""}>{pl.custom ? pl.n : `${pl.n} (${pl.st})${pl.ev ? " [EV req]" : ""}`}</option>)}
+              {[...PL].sort((a, b) => a.n.localeCompare(b.n)).map((pl) => <option key={pl.id} value={pl.id}>{pl.custom ? `-- ${pl.n} --` : `${pl.n} (${pl.st})${pl.ev ? " [EV req]" : ""}`}</option>)}
             </select>
             {p.ev && <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium flex items-center gap-2"><i className="ti ti-alert-triangle" aria-hidden="true" />Requires EV registration to enroll</div>}
             {p.cpp && !p.custom && (
