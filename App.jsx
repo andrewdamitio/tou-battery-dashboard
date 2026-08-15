@@ -366,8 +366,6 @@ export default function Dashboard() {
 
   const r = result;
   const p = curPlan;
-  const consumerOk = r.pb !== Infinity && r.pb <= LIFE;
-  const operatorOk = opResult.pb !== Infinity && opResult.pb <= LIFE && opResult.hoYr1 > 0;
 
   return (
     <div className="max-w-[720px] mx-auto pb-4">
@@ -394,10 +392,6 @@ export default function Dashboard() {
         <div className="flex items-baseline gap-1.5">
           <span className="font-data text-[10px] uppercase tracking-wider text-zinc-400">Arb</span>
           <span className="font-data text-xs font-medium text-zinc-900 dark:text-zinc-100">{fm(r.gross)}/yr</span>
-        </div>
-        <div className="flex items-center gap-3 ml-auto">
-          <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400"><span className={`w-2 h-2 rounded-full ${consumerOk ? "bg-green-500" : "bg-red-500"}`} />Consumer</span>
-          <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400"><span className={`w-2 h-2 rounded-full ${operatorOk ? "bg-green-500" : "bg-red-500"}`} />Operator</span>
         </div>
       </div>
 
