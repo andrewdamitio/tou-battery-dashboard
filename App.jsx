@@ -798,6 +798,7 @@ export default function Dashboard() {
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, ptr: !prev.ptr }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.ptr ? "hide" : "market data ▾"}</button>
                   </div>
+                  <p className="text-xs text-zinc-400 px-3 pb-1">A per-kWh bill credit for using less than your own recent-usage baseline during announced peak events. Meter-based — no qualified-hardware list, so a non-export battery qualifies outright.</p>
                   {!ptrEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in OR, MD, MI, DE, IL</p>}
                   {drExp.ptr && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
@@ -833,6 +834,7 @@ export default function Dashboard() {
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, elrp: !prev.elrp }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.elrp ? "hide" : "market data ▾"}</button>
                   </div>
+                  <p className="text-xs text-zinc-400 px-3 pb-1">California's emergency grid-response program — a flat $/kWh payment for verified load reduction during CAISO-triggered grid emergencies, a handful of times a year, no penalty for skipping one.</p>
                   {!elrpEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in CA only</p>}
                   {drExp.elrp && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
@@ -863,6 +865,7 @@ export default function Dashboard() {
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, cpk: !prev.cpk }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.cpk ? "hide" : "market data ▾"}</button>
                   </div>
+                  <p className="text-xs text-zinc-400 px-3 pb-1">Grid operators set your capacity charge from usage during a handful of retroactively-identified system peak hours each year. Staying low during those hours shrinks that charge — indirect, via the supply rate, and smaller than a direct rebate, but real.</p>
                   {!cpkEligible && <p className="text-xs text-zinc-400 px-3 pb-2">Not available on {p.n} — live in IL, MD, VA, NY, MA, DE</p>}
                   {drExp.cpk && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
@@ -901,6 +904,7 @@ export default function Dashboard() {
                     </div>
                     <button onClick={() => setDrExp((prev) => ({ ...prev, thermo: !prev.thermo }))} className="ml-auto text-xs text-blue-500 hover:text-blue-700">{drExp.thermo ? "hide" : "market data ▾"}</button>
                   </div>
+                  <p className="text-xs text-zinc-400 px-3 pb-2">Generic thermostat/AC-cycling demand-response programs many utilities run — a battery can serve the curtailed load instead, so the house stays comfortable and the meter still reads lower. Unlike the three rows above, this isn't tied to a specific state list in the model — it's a conservative nationwide placeholder, so it never grays out. Verify local program availability before underwriting it.</p>
                   {drExp.thermo && (
                     <div className="mx-3 mb-3 p-2.5 bg-white dark:bg-zinc-900 rounded-lg text-xs space-y-1.5 border border-zinc-200 dark:border-zinc-700">
                       <div className="font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thermostat-style DR and aggregator platforms the battery can serve</div>
