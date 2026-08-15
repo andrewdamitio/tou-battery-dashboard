@@ -73,6 +73,8 @@ const BCT = [
 ];
 
 const PL = [
+  { id: "cus", n: "Custom plan", st: "—", ev: false, custom: true },
+  { id: "sdr", n: "SDG&E TOU-DR1", st: "CA", ev: false, sP: 68, sC: 33, wP: 42, wC: 31, sY: 153, wY: 212, inc: 0, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 50, e: 12, mn: 1, mx: 18, n: "TOU-DR-P", src: "Up to 18/yr per SDG&E" } },
   { id: "se5", n: "SDG&E EV-TOU-5", st: "CA", ev: true, sP: 71.1, sC: 12, wP: 47.8, wC: 11.4, sY: 153, wY: 212, inc: 0, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 50, e: 12, mn: 1, mx: 18, n: "EV-TOU-5-P", src: "Up to 18/yr per SDG&E" } },
   { id: "pe2", n: "PG&E EV2-A", st: "CA", ev: true, sP: 54, sC: 23, wP: 41, wC: 23, sY: 122, wY: 243, inc: 0, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 60, e: 12, mn: 9, mx: 15, n: "SmartRate", src: "9–15/yr per PG&E" } },
   { id: "rel", n: "Reliant Free Nights", st: "TX", ev: false, sP: 27.9, sC: 0, wP: 27.9, wC: 0, sY: 153, wY: 212, inc: 9.95, ph: 15, phLabel: "6 AM–9 PM (charge free 9 PM–6 AM)" },
@@ -80,7 +82,6 @@ const PL = [
   { id: "aps", n: "APS R-TOU-E", st: "AZ", ev: false, sP: 34.4, sC: 12.3, wP: 32.5, wC: 3.5, sY: 131, wY: 129, inc: 0, ph: 5, phLabel: "3–8 PM weekdays" },
   { id: "sce", n: "SCE TOU-D-PRIME", st: "CA", ev: false, sP: 58, sC: 25, wP: 38, wC: 25, sY: 122, wY: 243, inc: 24, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 80, e: 12, mn: 1, mx: 12, n: "PRIME-CPP", src: "Max 12/yr per CPUC" } },
   { id: "pel", n: "PG&E E-ELEC", st: "CA", ev: false, sP: 57, sC: 31, wP: 41, wC: 31, sY: 122, wY: 243, inc: 0, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 60, e: 12, mn: 9, mx: 15, n: "SmartRate", src: "9–15/yr per PG&E" } },
-  { id: "sdr", n: "SDG&E TOU-DR1", st: "CA", ev: false, sP: 68, sC: 33, wP: 42, wC: 31, sY: 153, wY: 212, inc: 0, ph: 5, phLabel: "4–9 PM daily", cpp: { a: 50, e: 12, mn: 1, mx: 18, n: "TOU-DR-P", src: "Up to 18/yr per SDG&E" } },
   { id: "fpl", n: "FPL TOU", st: "FL", ev: false, sP: 26, sC: 9, wP: 26, wC: 9, sY: 150, wY: 108, inc: 0, ph: 9, phLabel: "Noon–9 PM weekdays (summer); split peak winter" },
   { id: "psg", n: "PSEG-LI 195", st: "NY", ev: false, sP: 38, sC: 12, wP: 22, wC: 12, sY: 88, wY: 172, inc: 0, ph: 12, phLabel: "10 AM–10 PM weekdays" },
   { id: "con", n: "ConEd SC-1 II", st: "NY", ev: false, sP: 35, sC: 15, wP: 25, wC: 15, sY: 88, wY: 172, inc: 0, ph: 14, phLabel: "8 AM–10 PM weekdays" },
@@ -99,7 +100,6 @@ const PL = [
   { id: "evsma", n: "Eversource MA TOU", st: "MA", ev: false, sP: 31.0, sC: 16.5, wP: 26.0, wC: 14.0, sY: 131, wY: 123, inc: 0, ph: 11, phLabel: "9 AM–8 PM weekdays" },
   { id: "teco", n: "Tampa Electric TOU", st: "FL", ev: false, sP: 20.5, sC: 7.5, wP: 10.5, wC: 7.5, sY: 87, wY: 167, inc: 0, ph: 10, phLabel: "11 AM–9 PM weekdays" },
   { id: "pse", n: "Puget Sound Energy TOU", st: "WA", ev: false, sP: 17.5, sC: 9.0, wP: 17.5, wC: 9.0, sY: 183, wY: 182, inc: 0, ph: 3, phLabel: "6–9 PM daily" },
-  { id: "cus", n: "Custom plan", st: "—", ev: false, custom: true },
 ];
 
 const PROGRAMS = [
@@ -406,7 +406,7 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-medium">1</span>TOU plan</p>
             <select value={plan} onChange={(e) => { setPlan(e.target.value); setCpp(false); setCppE(0); }} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
-              {PL.map((pl) => <option key={pl.id} value={pl.id}>{pl.n} ({pl.st}){pl.ev ? " [EV req]" : ""}</option>)}
+              {PL.map((pl) => <option key={pl.id} value={pl.id} className={pl.custom ? "font-bold" : ""}>{pl.custom ? pl.n : `${pl.n} (${pl.st})${pl.ev ? " [EV req]" : ""}`}</option>)}
             </select>
             {p.ev && <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium flex items-center gap-2"><i className="ti ti-alert-triangle" aria-hidden="true" />Requires EV registration to enroll</div>}
             {p.cpp && !p.custom && (
