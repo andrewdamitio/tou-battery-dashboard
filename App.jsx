@@ -81,7 +81,6 @@ export default function Dashboard() {
   const [chartMonth, setChartMonth] = useState(6);
 
   // --- DR inputs
-  const [preserve, setPreserve] = useState(0);
   const [dispatchSuccess, setDispatchSuccess] = useState(95);
   const [drEnabled, setDrEnabled] = useState({ cpp: true, elrp: false, ptr: false, cpk: false, whl: false });
   const [drOverrides, setDrOverrides] = useState({ cpk: 40, whl: 0 });
@@ -149,45 +148,34 @@ export default function Dashboard() {
     return e;
   }, [drEnabled, plan.st]);
 
-  const baselineActive = eventDays > 0;
   const anyDrActive = useMemo(
     () => DR_PROGRAMS.some((p) => drEnabled[p.id] && (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp)),
     [drEnabled, plan.st, plan.cpp]
   );
-  const nonEventDays = Math.max(0, 365 - eventDays);
 
-  // `preserve` is the user's manual dial. `frontier`/`bestPreserve` still
-  // sweep the same tradeoff to surface a revenue-maximizing suggestion next
-  // to the slider, but no longer drive the number itself.
-  const frontier = useMemo(() => {
-    const out = [];
-    for (let p = 0; p <= 100; p += 5) {
-      const a = annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: p / 100, eventDays });
-      const d = drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: p / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS });
-      out.push({ preserve: p, tou: Math.round(a.usd), drv: Math.round(d.total), total: Math.round(a.usd + d.total) });
-    }
-    return out;
-  }, [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
-
-  const bestPreserve = useMemo(() => frontier.reduce((b, r) => (r.total > b.total ? r : b), frontier[0]), [frontier]);
-  const effPreserve = baselineActive ? preserve : 0;
-  const idleDays = baselineActive ? Math.round((nonEventDays * effPreserve) / 100) : 0;
+  // The battery always shaves every peak day for TOU savings — it never idles
+  // to protect a Peak Time Rebates / ELRP baseline. A battery that only pencils
+  // out by sitting idle isn't a battery worth buying, so that strategy isn't
+  // modeled. Baseline-basis programs stay toggleable in Programs below and are
+  // shown honestly at $0: their measured-reduction credit needs a baseline
+  // this battery's daily use has already eroded to nothing.
+  const preserve = 0;
 
   const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: effPreserve / 100, eventDays }),
-    [plan, bat, counts, sq, baselineFrac, applianceOverrides, effPreserve, eventDays]
+    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve, eventDays }),
+    [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays]
   );
 
   const dr = useMemo(
-    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS }),
-    [plan, bat, arb, drEnabled, effPreserve, dispatchSuccess, cppEvents, drOverrides]
+    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS }),
+    [plan, bat, arb, drEnabled, dispatchSuccess, cppEvents, drOverrides]
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve: effPreserve / 100, eventDays,
-    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
+    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve, eventDays,
+    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, effPreserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
 
@@ -242,11 +230,11 @@ export default function Dashboard() {
     const opMode = rankBuyer === "operator";
     setRanking(rankBatteries({
       plan, batteries: BATTERIES, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides,
-      years: LIFE, preserve: effPreserve / 100, eventDays, discount,
+      years: LIFE, preserve, eventDays, discount,
       hwPct: opMode ? hwPct : 100,
       drFn: (b, a, capFrac) => drRevenue({
         plan, bat: b, arb: a, enabled: opMode ? drEnabled : { cpp: true },
-        preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100,
+        preserve, dispatchSuccess: dispatchSuccess / 100,
         cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
       }).total,
     }));
@@ -728,7 +716,8 @@ export default function Dashboard() {
                     <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
                     {item && item.eroded > 0 && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        {fm(item.gross)}/yr at full baseline preservation; {fm(item.eroded)} of that is forfeited at {effPreserve}% preservation.
+                        Would be {fm(item.gross)}/yr if this battery idled to protect its baseline — but it always shaves daily
+                        (see Dispatch strategy below), so the full amount is forfeited to erosion.
                       </p>
                     )}
                     {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
@@ -741,21 +730,14 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
-              <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} disabled={!baselineActive} fmt={(v) => v + "%"} hint={!baselineActive ? "no baseline program active" : preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
-              <Note tone={baselineActive ? "zinc" : "amber"}>
-                {baselineActive ? (
-                  <>Share of non-event days the battery sits idle instead of shaving the peak, to keep the baseline that
-                  Peak Time Rebates / ELRP measure against from eroding. At {preserve}%, that's roughly{" "}
-                  <strong>{idleDays} idle days</strong> out of ~{nonEventDays} non-event days a year — the battery still shaves
-                  all {eventDays} declared event days regardless, since those are what actually get paid. Nothing compensates
-                  the idling itself — it only protects the size of the event-day payment. Combined revenue for this exact
-                  configuration is maximized at <strong>{bestPreserve.preserve}%</strong> ({fm(bestPreserve.total)}/yr) — that's
-                  a suggestion, not a requirement; move the slider to see how far off any other value leaves you.</>
-                ) : (
-                  <>Grayed out: no baseline-basis program (Peak Time Rebates, ELRP) is both enabled and eligible on {plan.n}{" "}
-                  right now — check a box in Programs above to make this slider do anything. With none active, idling would
-                  only forfeit TOU savings for zero DR upside, so it's held at 0% regardless of where the handle sits.</>
-                )}
+              <Note>
+                This battery always shaves every peak day for TOU savings — it never sits idle to protect a Peak Time Rebates /
+                ELRP baseline. If a battery only pencils out by holding it back from doing its job, that's a sign the battery
+                isn't a good purchase for this household, not a dispatch strategy worth modeling. The tradeoff was real —
+                idling can inflate a baseline-basis payment — but it's not a dial here: baseline-basis programs stay toggleable
+                in Programs above and are shown honestly at what they're actually worth under daily use, which is $0.
+                CPP-style overlays are unaffected: they're bill avoidance against a published adder, not a measured reduction,
+                so they stack cleanly with daily shaving regardless.
               </Note>
               <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
               <Note tone={anyDrActive ? "zinc" : "amber"}>
@@ -785,9 +767,9 @@ export default function Dashboard() {
               <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
             </div>
             <p className="text-xs text-zinc-400 mt-1.5">
-              Both shift live as you move either slider above: DR revenue scales directly with dispatch success, while TOU
-              arbitrage only drops when baseline preservation idles a day to protect a richer DR payment.{" "}
-              {baselineActive && effPreserve === 0 && "At 0% preservation, nothing is currently being traded away."}
+              DR revenue shifts live with the dispatch success slider above. TOU arbitrage is fixed by the tariff, battery, and
+              household load set elsewhere — dispatch strategy on this tab no longer touches it, since the battery never idles
+              to trade it away.
             </p>
           </div>
 
