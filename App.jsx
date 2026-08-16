@@ -95,7 +95,6 @@ export default function Dashboard() {
   const [splitPct, setSplitPct] = useState(65);
   const [upfront, setUpfront] = useState(0);
   const [discount, setDiscount] = useState(12);
-  const [itcPct, setItcPct] = useState(0);
   const [settlement, setSettlement] = useState("actual");
   const [deemedSpread, setDeemedSpread] = useState(null);
 
@@ -164,8 +163,8 @@ export default function Dashboard() {
 
   const op = useMemo(() => operatorEconomics({
     assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
-    planFixed: plan.fixed, discount, itcPct, settlement, deemedSpreadC: effDeemed,
-  }), [assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, itcPct, settlement, effDeemed]);
+    planFixed: plan.fixed, discount, settlement, deemedSpreadC: effDeemed,
+  }), [assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, settlement, effDeemed]);
 
   const deliverableKw = useMemo(() => {
     const m = arb.months[6];
@@ -254,6 +253,12 @@ export default function Dashboard() {
   const eolYear = assetRows.findIndex((r) => r.cumCycles > bat.cyc) + 1;
   const y1 = assetRows[0] || { arbUSD: 0, drUSD: 0 };
 
+  // Does either side of this deal actually make money? Computed once, at the
+  // top level, so it can drive the sticky verdict strip on every tab, not
+  // just the Unit economics tab where the full banner lives.
+  const dealHo = op.hoYr1 > 0;
+  const dealOp = op.opIRR !== null && op.opIRR * 100 > discount;
+
   const tabs = [
     { id: "model", label: "Customer bill" },
     { id: "dr", label: "DR stack" },
@@ -266,10 +271,12 @@ export default function Dashboard() {
     <div className="max-w-[860px] mx-auto pb-16 px-1">
       <div className="mb-6 pt-2">
         <div className="font-data text-[11px] tracking-[0.2em] uppercase text-blue-600 dark:text-blue-400 mb-2">BTM fleet console</div>
-        <h1 className="font-display text-[26px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Plug-in battery economics, hour by hour</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Can plug-in batteries make money — for the company, and the customer?</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-[620px]">
-          Dispatches a non-exporting battery against an hourly tariff and an hourly household load shape, then carries the result through
-          degradation, demand-response baseline erosion, unit economics, and a fleet ramp.
+          Every tab feeds one question: at this tariff, this household, this battery, and this offer, does the homeowner actually
+          save money, and does the operator actually clear its cost of capital? Dispatches a non-exporting battery against an
+          hourly tariff and load shape, then carries the result through degradation, DR baseline erosion, unit economics, and a
+          fleet ramp — no step is allowed to flatter the answer.
         </p>
       </div>
 
@@ -280,6 +287,14 @@ export default function Dashboard() {
       </div>
 
       <div className="sticky top-2 z-10 mb-5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <div className="flex items-center gap-3 pr-3 border-r border-zinc-200 dark:border-zinc-700">
+          <span className={`flex items-center gap-1.5 text-xs font-medium ${dealHo ? "text-green-600" : "text-red-500"}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${dealHo ? "bg-green-500" : "bg-red-500"}`} />Customer {dealHo ? fp(op.hoYr1) : fm(op.hoYr1)}/yr
+          </span>
+          <span className={`flex items-center gap-1.5 text-xs font-medium ${dealOp ? "text-green-600" : "text-red-500"}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${dealOp ? "bg-green-500" : "bg-red-500"}`} />Operator {op.opIRR === null ? "no payback" : pct(op.opIRR) + " IRR"}
+          </span>
+        </div>
         {[["Plan", plan.n], ["Battery", bat.n], ["Limit", BIND_TEXT[arb.bindingConstraint][0]],
           ["TOU", fm(arb.usd) + "/yr"], ["DR", fm(dr.total) + "/yr"]].map(([k, v]) => (
           <div key={k} className="flex items-baseline gap-1.5 min-w-0">
@@ -662,9 +677,24 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
               <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} fmt={(v) => v + "%"} hint={preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
+              <Note>
+                Share of non-event days the battery sits idle instead of shaving the peak, to keep the rolling usage baseline
+                that meter-based DR programs (Peak Time Rebates, ELRP) measure against from eroding. Every idle day is a day of
+                forfeited TOU savings, so this is a real trade, not a free dial. <strong>Default: 0%.</strong> TOU pays on
+                roughly 350 days a year and DR events pay on a dozen or so, so daily shaving wins on nearly every tariff — the
+                frontier chart above already computes the revenue-maximizing value for this exact configuration; only move this
+                slider above 0% if that chart says otherwise.
+              </Note>
               <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} fmt={(v) => v + "%"} hint="unplugged, moved, or low SoC at call time" />
-              <Note>Dispatch success is an assumption, not an observed rate. For a fleet of portable units a customer can unplug and
-              carry to a campsite, 70–85% is a defensible planning range; you'd replace it with telemetry once you have any.</Note>
+              <Note>
+                Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low on
+                charge when the event fires. This is an assumption, not an observed rate: there's no telemetry yet to calibrate
+                it against. Planning ranges by visibility into the fleet: <strong>60–70%</strong> with no location or state-of-charge
+                signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a customer before a call, which is a
+                defensible default for portable units a customer might carry to a campsite; <strong>85–95%</strong> only once
+                real dispatch telemetry exists and low-risk accounts can be targeted. Replace this slider with an observed rate
+                the moment you have one — it's currently set to {dispatchSuccess}%.
+              </Note>
             </div>
           </div>
 
@@ -715,8 +745,6 @@ export default function Dashboard() {
 
       {/* ================================================================= */}
       {tab === "operator" && (() => {
-        const dealHo = op.hoYr1 > 0;
-        const dealOp = op.opIRR !== null && op.opIRR * 100 > discount;
         return (
           <div>
             <div className={`py-5 px-5 rounded-xl mb-5 ${dealHo && dealOp ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
@@ -807,13 +835,10 @@ export default function Dashboard() {
                 </div>
                 <Slider label="Annual churn" value={churn} onChange={setChurn} min={0} max={30} fmt={(v) => v + "%"} />
                 <Slider label="Discount rate" value={discount} onChange={setDiscount} min={4} max={25} fmt={(v) => v + "%"} hint="cost of capital" />
-                <Slider label="ITC on hardware" value={itcPct} onChange={setItcPct} min={0} max={40} step={5} fmt={(v) => v + "%"} />
-                <Note tone={itcPct > 0 ? "amber" : "zinc"}>
-                  Set to 0 by default and left as a switch on purpose. Company-owned storage points at §48E rather than §25D
-                  (which OBBBA terminated for expenditures after 2025). Whether a cord-connected portable power station qualifies as
-                  "energy storage technology" under 48E — and how the post-OBBBA phase-down and FEOC rules apply — I don't know, and
-                  guidance I'm aware of has been written around installed systems. Verify with a tax advisor before putting weight
-                  on this slider; it moves unit IRR more than anything else on this tab.
+                <Note>
+                  No ITC is modeled on hardware. OBBBA terminated §25D for expenditures after 2025, and whether a cord-connected
+                  portable power station would even qualify as "energy storage technology" under §48E was never resolved before
+                  that door closed. Underwrite this business on unit economics that stand without a credit that isn't coming back.
                 </Note>
               </div>
             </div>

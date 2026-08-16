@@ -379,11 +379,10 @@ export function paybackYear(flows) {
 
 export function operatorEconomics({
   assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
-  planFixed, discount, itcPct, settlement, deemedSpreadC,
+  planFixed, discount, settlement, deemedSpreadC,
 }) {
   const hw = bat.c * (hwPct / 100);
-  const itc = hw * (itcPct / 100);
-  const opFlows = [-(hw + cac) + upfront + itc];
+  const opFlows = [-(hw + cac) + upfront];
   const hoFlows = [-upfront];
   const detail = [];
 
@@ -410,7 +409,7 @@ export function operatorEconomics({
 
   const cum = (arr) => arr.reduce((acc, v) => { acc.push((acc[acc.length - 1] ?? 0) + v); return acc; }, []);
   return {
-    hw, itc, opFlows, hoFlows, detail,
+    hw, opFlows, hoFlows, detail,
     opCum: cum(opFlows), hoCum: cum(hoFlows),
     opNPV: npv(discount / 100, opFlows),
     opIRR: irr(opFlows),
