@@ -62,23 +62,23 @@ export function chargeWindow(rateArr) {
  * @returns {{ total: number[24], addressable: number[24], blocked: object[] }}
  * `addressable` is the subset a given battery can physically serve.
  */
-export function loadShapeForMonth({ counts, sq, month, plan, bat, baselineFrac, applianceOverrides = {} }) {
+export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverrides = {} }) {
   const isSummer = plan.summerMonths.includes(month);
   const total = Array(24).fill(0);
   const addressable = Array(24).fill(0);
   const blocked = [];
   const servedNames = [];
 
-  // House baseline: lighting, networking, standby, main fridge. These sit on
-  // circuits all over the house. A plug-in battery reaches only what is
-  // physically plugged into it — a fraction of the baseline, never all of it.
-  const bFrac = baselineFrac ?? 0.3;
+  // House baseline: lighting, networking, standby, main fridge. Plugged into
+  // a wall outlet, the unit backfeeds the home's shared wiring the same way
+  // balcony solar does, so the baseline is fully reachable regardless of
+  // which circuit it's actually on.
   const baseKw = baselineKw(sq);
   const baseProf = PROFILES.evening;
   for (let h = 0; h < 24; h++) {
     const kwh = baseKw * 24 * baseProf[h];
     total[h] += kwh;
-    addressable[h] += kwh * bFrac;
+    addressable[h] += kwh;
   }
 
   Object.entries(counts).forEach(([id, qty]) => {
@@ -180,7 +180,7 @@ function peakUnserved(rateArr, loadArr, d, marginal) {
  *                      protect its DR baseline. 0 = shave daily.
  * @param opts.eventDays number of DR event days/yr that must be shaved regardless
  */
-export function annualArbitrage({ plan, bat, counts, sq, baselineFrac, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides }) {
+export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides }) {
   const months = [];
   let usd = 0, kwh = 0, cycles = 0, anyChargeLimited = false, anyPowerLimited = false;
   const bind = { energy: 0, power: 0, charge: 0, load: 0 };
@@ -189,7 +189,7 @@ export function annualArbitrage({ plan, bat, counts, sq, baselineFrac, capFrac =
 
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, baselineFrac, applianceOverrides });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides });
     const dc = dayCounts(m);
 
     const run = (rateArr, nDays) => {
@@ -257,11 +257,11 @@ export function annualArbitrage({ plan, bat, counts, sq, baselineFrac, capFrac =
 // --- what the customer's bill actually does --------------------------------
 
 /** Monthly bill with and without the battery, including fixed charges. */
-export function billComparison({ plan, arb, counts, sq, bat, baselineFrac, applianceOverrides }) {
+export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides }) {
   const rows = [];
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, baselineFrac, applianceOverrides });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides });
     const dc = dayCounts(m);
     const dayCost = (rateArr) => ls.total.reduce((s, kwh, h) => s + kwh * rateArr[h], 0) / 100;
     const without = dayCost(rs.weekday) * dc.weekday + dayCost(rs.weekend) * dc.weekend + plan.fixed;
@@ -325,13 +325,13 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
+export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
   const rows = [];
   let cumCycles = 0;
 
   for (let y = 1; y <= years; y++) {
     const capFrac = Math.max(0.5, 1 - FADE_AT_RATED * (cumCycles / bat.cyc));
-    const arb = annualArbitrage({ plan, bat, counts, sq, baselineFrac, applianceOverrides, capFrac, preserve, eventDays });
+    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays });
     cumCycles += arb.cycles;
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
@@ -488,17 +488,17 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn }) {
+export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
-      plan, bat, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays,
+      plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays,
       drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
       hwCostFn: () => bat.c * (hwPct / 100),
     });
     const cost = bat.c * (hwPct / 100);
     const flows = [-cost, ...proj.map((r) => r.arbUSD + r.drUSD - (r.replaceCost || 0))];
     const y1 = proj[0] || { arbUSD: 0, drUSD: 0 };
-    const arb1 = annualArbitrage({ plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays });
+    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays });
 
     return {
       bat, cost,

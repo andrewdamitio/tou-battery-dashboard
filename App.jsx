@@ -73,7 +73,6 @@ export default function Dashboard() {
   const [sq, setSq] = useState(1600);
   const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
   const [batId, setBatId] = useState("al");
-  const [baselineFrac, setBaselineFrac] = useState(30);
   const [evTimer, setEvTimer] = useState(false);
   const [ranking, setRanking] = useState(null);
   const [rankBuyer, setRankBuyer] = useState("homeowner");
@@ -162,8 +161,8 @@ export default function Dashboard() {
   const preserve = 0;
 
   const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve, eventDays }),
-    [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays]
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays }),
+    [plan, bat, counts, sq, applianceOverrides, eventDays]
   );
 
   const dr = useMemo(
@@ -172,10 +171,10 @@ export default function Dashboard() {
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve, eventDays,
+    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays,
     drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
 
@@ -196,7 +195,7 @@ export default function Dashboard() {
     dispatchSuccess: dispatchSuccess / 100, minAggKw,
   }), [op.opFlows, perMonth, rampMonths, discount, recoveryRate, churn, op.hw, refurb, deliverableKw, dispatchSuccess, minAggKw]);
 
-  const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, baselineFrac: baselineFrac / 100, applianceOverrides }), [plan, arb, counts, sq, bat, baselineFrac, applianceOverrides]);
+  const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, applianceOverrides }), [plan, arb, counts, sq, bat, applianceOverrides]);
 
   // 24-hour dispatch series for the selected month
   const daySeries = useMemo(() => {
@@ -229,7 +228,7 @@ export default function Dashboard() {
   const runRanking = () => {
     const opMode = rankBuyer === "operator";
     setRanking(rankBatteries({
-      plan, batteries: BATTERIES, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides,
+      plan, batteries: BATTERIES, counts, sq, applianceOverrides,
       years: LIFE, preserve, eventDays, discount,
       hwPct: opMode ? hwPct : 100,
       drFn: (b, a, capFrac) => drRevenue({
@@ -280,9 +279,9 @@ export default function Dashboard() {
         <h1 className="font-display text-[26px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Can plug-in batteries make money — for the company, and the customer?</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-[620px]">
           Every tab feeds one question: at this tariff, this household, this battery, and this offer, does the homeowner actually
-          save money, and does the operator actually clear its cost of capital? Dispatches a non-exporting battery against an
-          hourly tariff and load shape, then carries the result through degradation, DR baseline erosion, unit economics, and a
-          fleet ramp — no step is allowed to flatter the answer.
+          save money, and does the operator actually clear its cost of capital? Dispatches a wall-outlet battery that backfeeds
+          the home (never the grid) against an hourly tariff and load shape, then carries the result through degradation, DR
+          baseline erosion, unit economics, and a fleet ramp — no step is allowed to flatter the answer.
         </p>
       </div>
 
@@ -391,12 +390,12 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
               <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
-              <Slider label="Baseline on the battery" value={baselineFrac} onChange={setBaselineFrac} min={0} max={100} step={5} fmt={(v) => v + "%"} />
               <Note>
-                Lighting, networking, standby and the main fridge sit on circuits all over the house. A battery in the corner
-                reaches only what's plugged into it — one or two outlets' worth, so 20–40% is realistic. A critical-loads
-                subpanel reaches whatever is wired to that panel, typically 50–70%. This is the setting that determines whether
-                the battery can ever cover the whole house, and the answer is no: some load always comes off the meter.
+                Plugged into a wall outlet, the unit backfeeds the home's shared wiring the same way balcony solar does —
+                power injected anywhere behind the meter offsets demand anywhere else on that panel, not just what's on the
+                same circuit. So the always-on baseline (fridge, networking, standby) is fully reachable regardless of which
+                outlet the unit is plugged into: 100%, not a slider. This assumes export-to-home is treated as legal and
+                permitted, which is the premise the business runs on — it is not the case everywhere today.
               </Note>
             </div>
             {APPLIANCE_CATS.map((cat, ci) => {
@@ -522,18 +521,20 @@ export default function Dashboard() {
               })()}
             </div>
             <div className="mb-2"><Note>
-              Every unit here is modeled <strong>cord-connected</strong>: it sits in the room and serves what you plug into it.
-              No electrician, no permit, no interconnection — which is the entire premise of the business, and the reason it
-              can be sold and shipped like a consumer product.
+              Every unit here plugs into a standard wall outlet — no electrician, no permit, no subpanel install — which is the
+              entire premise of the business, and the reason it can be sold and shipped like a consumer product. That same
+              outlet connection backfeeds the home's shared wiring the way balcony solar does, which is why the always-on
+              household baseline (Household load below) is fully reachable regardless of which circuit it's actually on — under
+              the assumption that this kind of export is treated as legal, which is the premise the business runs on and is not
+              the case everywhere today.
               <br /><br />
-              Subpanel and transfer-switch operation is deliberately <em>not</em> modeled. It would reach hardwired loads, but a
-              critical-loads subpanel runs roughly $1,500–4,000 installed (an assumption, and higher if the main panel needs
-              work) — more than most of these batteries cost. It also reclassifies the unit as an interconnected ESS, which
-              triggers the permitting and utility-approval process this model exists to avoid. Showing that benefit without its
-              cost would have flattered every result.
+              Switched, hardwired appliances (central AC, an electric dryer, a range) are a separate question from the
+              always-on baseline and are still not modeled as reachable — formally requiring a subpanel/transfer switch, which
+              runs roughly $1,500–4,000 installed and reclassifies the unit as an interconnected ESS, triggering the
+              permitting and utility-approval process this model otherwise avoids.
               <br /><br />
               240V output still matters: an EV Level 2 charger plugs into a NEMA 14-50, so a 240V unit can serve it with no
-              wiring work. That is the one large 240V load a plug-in battery genuinely reaches.
+              wiring work regardless.
             </Note></div>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
               <Row label="Usable energy" value={`${(bat.kw * USABLE_SOC).toFixed(2)} kWh`} hint={`${(USABLE_SOC * 100).toFixed(0)}% of ${bat.kw}`} />
