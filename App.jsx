@@ -72,6 +72,7 @@ export default function Dashboard() {
   });
   const [sq, setSq] = useState(1600);
   const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
+  const [loadInputMode, setLoadInputMode] = useState("appliances");
   const [calibMode, setCalibMode] = useState("total");
   const [monthlyActual, setMonthlyActual] = useState({});
   const [monthlyActualByTier, setMonthlyActualByTier] = useState({});
@@ -165,8 +166,8 @@ export default function Dashboard() {
 
   // Only the active calibration mode's data actually drives the simulation --
   // switching modes doesn't erase what you've typed in the other one.
-  const activeMonthlyActual = calibMode === "total" ? monthlyActual : null;
-  const activeMonthlyActualByTier = calibMode === "periods" ? monthlyActualByTier : null;
+  const activeMonthlyActual = loadInputMode === "calibrate" && calibMode === "total" ? monthlyActual : null;
+  const activeMonthlyActualByTier = loadInputMode === "calibrate" && calibMode === "periods" ? monthlyActualByTier : null;
 
   // -------------------------------------------------------------------------
   // MODEL
@@ -500,9 +501,24 @@ export default function Dashboard() {
               </Note>
             </div>
 
+            <div className="flex gap-1 mb-2">
+              {[["appliances", "Enter appliances"], ["calibrate", "Calibrate to actual usage"]].map(([id, lbl]) => (
+                <button key={id} onClick={() => setLoadInputMode(id)} className={`flex-1 text-sm px-3 py-2 rounded-lg font-medium border ${loadInputMode === id ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600 text-zinc-500"}`}>{lbl}</button>
+              ))}
+            </div>
+
+            {loadInputMode === "calibrate" && (
+              <div className="mb-2"><Note>
+                Still using your currently configured appliance mix to determine the hourly shape and what's reachable by a
+                plug-in battery (hardwired loads stay excluded either way) — switch to "Enter appliances" to change that. What
+                changes here is the magnitude: real kWh from a utility bill instead of an appliance-based guess.
+              </Note></div>
+            )}
+
+            {loadInputMode === "calibrate" && (
             <div className="mb-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Calibrate to actual usage (optional)</p>
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Actual usage</p>
                 <div className="flex gap-1">
                   {[["total", "Monthly total"], ["periods", "By rate period"]].map(([id, lbl]) => (
                     <button key={id} onClick={() => setCalibMode(id)} className={`text-[11px] px-2 py-1 rounded-md font-medium border ${calibMode === id ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600 text-zinc-500"}`}>{lbl}</button>
@@ -510,11 +526,10 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
-                The appliance list below sets the hourly shape — what's servable by a plug-in battery, and when. If you have a
-                utility bill handy, enter real kWh here to rescale the estimate to match it exactly, hour-by-hour proportions
-                kept intact. A TOU bill itemizes usage by rate period (Peak, Off-Peak, ...) — "By rate period" matches that
-                directly and can also correct the peak/off-peak <em>split</em>, not just the total, which "Monthly total" can't.
-                Leave a field blank to use the appliance estimate as-is.
+                If you have a utility bill handy, enter real kWh here to rescale the appliance-implied estimate to match it
+                exactly, hour-by-hour proportions kept intact. A TOU bill itemizes usage by rate period (Peak, Off-Peak, ...) —
+                "By rate period" matches that directly and can also correct the peak/off-peak <em>split</em>, not just the
+                total, which "Monthly total" can't. Leave a field blank to use the appliance estimate as-is.
               </p>
               {calibMode === "total" ? (
                 <>
@@ -584,8 +599,9 @@ export default function Dashboard() {
                 </>
               )}
             </div>
+            )}
 
-            {APPLIANCE_CATS.map((cat, ci) => {
+            {loadInputMode === "appliances" && APPLIANCE_CATS.map((cat, ci) => {
               const active = cat.i.reduce((s, a) => s + (counts[a.id] || 0), 0);
               const open = !collapsed[ci];
               return (
