@@ -292,97 +292,6 @@ export default function Dashboard() {
       {/* ================================================================= */}
       {tab === "model" && (
         <div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <Metric label="Bill savings (yr 1)" value={fm(arb.usd)} sub={`${Math.round(arb.kwh)} kWh shifted`} positive={arb.usd > 0} />
-            <Metric label="Binding constraint" value={BIND_TEXT[arb.bindingConstraint][0]} sub={`${arb.peakWindowLoadKwh.toFixed(1)} kWh addressable in peak`} />
-            <Metric label="Equivalent cycles/yr" value={Math.round(arb.cycles)} sub={`rated ${bat.cyc.toLocaleString()} (${bat.chem})`} positive={arb.cycles * LIFE <= bat.cyc} />
-            <Metric label="Simple payback" value={arb.usd > 0 ? (bat.c / arb.usd).toFixed(1) + " yrs" : "Never"} sub={`on ${fm(bat.c)} retail`} positive={arb.usd > 0 && bat.c / arb.usd <= LIFE} />
-          </div>
-
-          <div className="mb-4"><Note tone={arb.bindingConstraint === "load" ? "amber" : "zinc"}>
-            <strong>{BIND_TEXT[arb.bindingConstraint][0]} is what limits savings here</strong> on {Math.round(arb.bindShare * 100)}% of
-            billing days. {BIND_TEXT[arb.bindingConstraint][1]} This is the readout to check before changing battery or connection
-            mode — if the constraint is stored energy, unlocking more load changes nothing.
-          </Note></div>
-
-          {plan.ev && evLoad === 0 && (
-            <div className="mb-4"><Note tone="amber">
-              <strong>{plan.n} requires a registered EV to enroll</strong>, but no EV charging is in the load model — so the
-              savings above are for a household that couldn't actually sign up for this rate. EV charging is the largest
-              shiftable load most homes have, and on an EV tariff it usually dominates the result. Add Level 1 or Level 2
-              charging below, or switch to a tariff without the EV requirement.
-            </Note></div>
-          )}
-
-          {eolYear > 0 && eolYear <= LIFE && (
-            <div className="mb-4"><Note tone="red">
-              At {Math.round(arb.cycles)} equivalent full cycles a year, this unit passes its rated {bat.cyc.toLocaleString()}-cycle
-              life in <strong>year {eolYear}</strong>. The projection books a replacement there. Daily-cycling a battery sold on a
-              backup-power duty cycle is the warranty exposure in this business — {bat.chem === "NMC" ? "and NMC chemistry makes it acute." : "check the warranty's cycle basis before underwriting ten years."}
-            </Note></div>
-          )}
-
-          {arb.blocked.length > 0 && (
-            <div className="mb-4"><Note tone="amber">
-              <strong>Not servable by this unit</strong> — excluded from savings:
-              <ul className="mt-1.5 space-y-0.5">
-                {arb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
-              </ul>
-              <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
-            </Note></div>
-          )}
-
-          {/* --- the day --- */}
-          <div className="mb-6">
-            <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Typical weekday — load, price, and what the battery actually covers</p>
-              <select value={chartMonth} onChange={(e) => setChartMonth(+e.target.value)} className="text-xs p-1.5 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
-                {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-              </select>
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={daySeries} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                <XAxis dataKey="h" tick={{ fontSize: 10, fill: "#888" }} interval={1} />
-                <YAxis yAxisId="l" tick={{ fontSize: 10, fill: "#888" }} label={{ value: "kWh", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
-                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: "#888" }} label={{ value: "¢/kWh", angle: 90, position: "insideRight", fontSize: 10, fill: "#888" }} />
-                <Tooltip contentStyle={{ fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar yAxisId="l" dataKey="grid" stackId="a" fill="#a1a1aa" name="From grid" />
-                <Bar yAxisId="l" dataKey="discharge" stackId="a" fill="#16A34A" name="From battery" />
-                <Line yAxisId="l" type="stepAfter" dataKey="soc" stroke="#185FA5" strokeWidth={2} dot={false} name="State of charge (kWh)" />
-                <Line yAxisId="r" type="stepAfter" dataKey="rate" stroke="#D97706" strokeWidth={2} dot={false} strokeDasharray="4 3" name="Rate ¢/kWh" />
-              </ComposedChart>
-            </ResponsiveContainer>
-            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              Dispatch is greedy by price: the battery serves the most expensive hours first until stored energy, inverter power, or
-              addressable load runs out. Grey is what still comes off the meter — hardwired loads, hours past the energy budget, and
-              anything above the {bat.pw} kW inverter ceiling.
-              {arb.anyChargeLimited && <span className="text-amber-600 dark:text-amber-400"> Charging is the binding constraint in at least one month: the off-peak window is too short to refill at {bat.ck} kW.</span>}
-            </p>
-          </div>
-
-          {/* --- the bill --- */}
-          <div className="mb-6">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Monthly bill, with and without the battery</p>
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={bills.map((b) => ({ m: MONTHS[b.m], With: Math.round(b.with), Saved: Math.round(b.saved) }))} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                <XAxis dataKey="m" tick={{ fontSize: 10, fill: "#888" }} />
-                <YAxis tick={{ fontSize: 10, fill: "#888" }} tickFormatter={(v) => "$" + v} />
-                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="With" stackId="b" fill="#71717a" name="Bill with battery" />
-                <Bar dataKey="Saved" stackId="b" fill="#16A34A" name="Saved" />
-              </BarChart>
-            </ResponsiveContainer>
-            <p className="text-xs text-zinc-400 mt-1.5">
-              Annual bill without: <strong>{fm(bills.reduce((s, b) => s + b.without, 0))}</strong> · with:{" "}
-              <strong>{fm(bills.reduce((s, b) => s + b.with, 0))}</strong> · saved {fm(arb.usd)} (
-              {(100 * arb.usd / Math.max(1, bills.reduce((s, b) => s + b.without, 0))).toFixed(1)}%).
-              Volumetric charges plus the {fm(plan.fixed)}/mo plan premium only — tiered baseline credits, minimum bills, and
-              non-bypassable charges are not modeled.
-            </p>
-          </div>
-
           {/* --- inputs --- */}
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Tariff</p>
@@ -421,7 +330,7 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Battery and connection</p>
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Battery</p>
             <select value={batId} onChange={(e) => setBatId(e.target.value)} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
               {BAT_CLASSES.map((c) => (
                 <optgroup key={c.id} label={c.n}>
@@ -577,28 +486,124 @@ export default function Dashboard() {
             })}
           </div>
 
-          {evLoad > 0 && (
-            <div className="mb-4"><Note tone={evTimer ? "amber" : "zinc"}>
-              <strong>Charging schedule matters more than charger size.</strong>{" "}
-              {evTimer
-                ? "A timer already draws at off-peak prices, so there is nothing left for the battery to shift \u2014 which is why the savings collapse on this setting. The battery is competing with a free scheduling feature the car already has."
-                : "A driver who plugs in on arrival draws straight through the peak window, and that is precisely the load a battery can move."}{" "}
-              Most EV owners on a TOU rate already run a timer, because the utility told them to when they enrolled. The
-              addressable customer is the one who doesn\u2019t \u2014 and on an EV tariff that single distinction swings the result
-              further than the choice of battery does.
-            </Note></div>
-          )}
-
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Rate outlook</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
               <Slider label="Peak–off-peak spread" value={spreadEsc} onChange={setSpreadEsc} min={-4} max={6} step={0.5} fmt={(v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%/yr"} />
               <Note tone={spreadEsc > 3 ? "amber" : "zinc"}>
-                This escalates the <em>spread</em>, not the bill. They move independently: a shift of revenue from volumetric
-                to fixed charges — the CPUC income-graduated fixed charge is the live example — raises bills while compressing
-                the spread this business runs on. Negative values are the honest downside case.
+                This projects how the peak-to-off-peak <em>spread</em> — the margin a battery arbitrages, not the bill total —
+                changes over the {LIFE}-year life used in payback and NPV math elsewhere on this tab; it does not touch the
+                yr-1 numbers below, which use today's rates. Spread and bill level move independently: a utility can shift
+                revenue from volumetric to fixed charges — the CPUC income-graduated fixed charge is the live example — which
+                raises bills while compressing the spread this business runs on. Negative values are the honest downside case:
+                a shrinking spread erodes future savings even if nothing else about the household changes.
               </Note>
             </div>
+          </div>
+
+          {/* --- results --- */}
+          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Results</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <Metric label="Bill savings (yr 1)" value={fm(arb.usd)} sub={`${Math.round(arb.kwh)} kWh shifted`} positive={arb.usd > 0} />
+            <Metric label="Binding constraint" value={BIND_TEXT[arb.bindingConstraint][0]} sub={`${arb.peakWindowLoadKwh.toFixed(1)} kWh addressable in peak`} />
+            <Metric label="Equivalent cycles/yr" value={Math.round(arb.cycles)} sub={`rated ${bat.cyc.toLocaleString()} (${bat.chem})`} positive={arb.cycles * LIFE <= bat.cyc} />
+            <Metric label="Simple payback" value={arb.usd > 0 ? (bat.c / arb.usd).toFixed(1) + " yrs" : "Never"} sub={`on ${fm(bat.c)} retail`} positive={arb.usd > 0 && bat.c / arb.usd <= LIFE} />
+          </div>
+
+          <div className="mb-4"><Note tone={arb.bindingConstraint === "load" ? "amber" : "zinc"}>
+            <strong>{BIND_TEXT[arb.bindingConstraint][0]} is what limits savings here</strong> on {Math.round(arb.bindShare * 100)}% of
+            billing days. {BIND_TEXT[arb.bindingConstraint][1]} This is the readout to check before changing battery or connection
+            mode — if the constraint is stored energy, unlocking more load changes nothing.
+          </Note></div>
+
+          {plan.ev && evLoad === 0 && (
+            <div className="mb-4"><Note tone="amber">
+              <strong>{plan.n} requires a registered EV to enroll</strong>, but no EV charging is in the load model — so the
+              savings above are for a household that couldn't actually sign up for this rate. EV charging is the largest
+              shiftable load most homes have, and on an EV tariff it usually dominates the result. Add Level 1 or Level 2
+              charging below, or switch to a tariff without the EV requirement.
+            </Note></div>
+          )}
+
+          {evLoad > 0 && (
+            <div className="mb-4"><Note tone={evTimer ? "amber" : "zinc"}>
+              <strong>Charging schedule matters more than charger size.</strong>{" "}
+              {evTimer
+                ? "A timer already draws at off-peak prices, so there is nothing left for the battery to shift — which is why the savings collapse on this setting. The battery is competing with a free scheduling feature the car already has."
+                : "A driver who plugs in on arrival draws straight through the peak window, and that is precisely the load a battery can move."}{" "}
+              Most EV owners on a TOU rate already run a timer, because the utility told them to when they enrolled. The
+              addressable customer is the one who doesn't — and on an EV tariff that single distinction swings the result
+              further than the choice of battery does.
+            </Note></div>
+          )}
+
+          {eolYear > 0 && eolYear <= LIFE && (
+            <div className="mb-4"><Note tone="red">
+              At {Math.round(arb.cycles)} equivalent full cycles a year, this unit passes its rated {bat.cyc.toLocaleString()}-cycle
+              life in <strong>year {eolYear}</strong>. The projection books a replacement there. Daily-cycling a battery sold on a
+              backup-power duty cycle is the warranty exposure in this business — {bat.chem === "NMC" ? "and NMC chemistry makes it acute." : "check the warranty's cycle basis before underwriting ten years."}
+            </Note></div>
+          )}
+
+          {arb.blocked.length > 0 && (
+            <div className="mb-4"><Note tone="amber">
+              <strong>Not servable by this unit</strong> — excluded from savings:
+              <ul className="mt-1.5 space-y-0.5">
+                {arb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
+              </ul>
+              <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
+            </Note></div>
+          )}
+
+          {/* --- the day --- */}
+          <div className="mb-6">
+            <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Typical weekday — load, price, and what the battery actually covers</p>
+              <select value={chartMonth} onChange={(e) => setChartMonth(+e.target.value)} className="text-xs p-1.5 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
+                {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+            </div>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={daySeries} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                <XAxis dataKey="h" tick={{ fontSize: 10, fill: "#888" }} interval={1} />
+                <YAxis yAxisId="l" tick={{ fontSize: 10, fill: "#888" }} label={{ value: "kWh", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
+                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: "#888" }} label={{ value: "¢/kWh", angle: 90, position: "insideRight", fontSize: 10, fill: "#888" }} />
+                <Tooltip contentStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar yAxisId="l" dataKey="grid" stackId="a" fill="#a1a1aa" name="From grid" />
+                <Bar yAxisId="l" dataKey="discharge" stackId="a" fill="#16A34A" name="From battery" />
+                <Line yAxisId="l" type="stepAfter" dataKey="soc" stroke="#185FA5" strokeWidth={2} dot={false} name="State of charge (kWh)" />
+                <Line yAxisId="r" type="stepAfter" dataKey="rate" stroke="#D97706" strokeWidth={2} dot={false} strokeDasharray="4 3" name="Rate ¢/kWh" />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+              Dispatch is greedy by price: the battery serves the most expensive hours first until stored energy, inverter power, or
+              addressable load runs out. Grey is what still comes off the meter — hardwired loads, hours past the energy budget, and
+              anything above the {bat.pw} kW inverter ceiling.
+              {arb.anyChargeLimited && <span className="text-amber-600 dark:text-amber-400"> Charging is the binding constraint in at least one month: the off-peak window is too short to refill at {bat.ck} kW.</span>}
+            </p>
+          </div>
+
+          {/* --- the bill --- */}
+          <div className="mb-6">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Monthly bill, with and without the battery</p>
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart data={bills.map((b) => ({ m: MONTHS[b.m], With: Math.round(b.with), Saved: Math.round(b.saved) }))} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                <XAxis dataKey="m" tick={{ fontSize: 10, fill: "#888" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="With" stackId="b" fill="#71717a" name="Bill with battery" />
+                <Bar dataKey="Saved" stackId="b" fill="#16A34A" name="Saved" />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-zinc-400 mt-1.5">
+              Annual bill without: <strong>{fm(bills.reduce((s, b) => s + b.without, 0))}</strong> · with:{" "}
+              <strong>{fm(bills.reduce((s, b) => s + b.with, 0))}</strong> · saved {fm(arb.usd)} (
+              {(100 * arb.usd / Math.max(1, bills.reduce((s, b) => s + b.without, 0))).toFixed(1)}%).
+              Volumetric charges plus the {fm(plan.fixed)}/mo plan premium only — tiered baseline credits, minimum bills, and
+              non-bypassable charges are not modeled.
+            </p>
           </div>
         </div>
       )}
