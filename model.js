@@ -62,20 +62,23 @@ export function chargeWindow(rateArr) {
  * @returns {{ total: number[24], addressable: number[24], blocked: object[] }}
  * `addressable` is the subset a given battery can physically serve.
  */
-export function loadShapeForMonth({ counts, sq, month, plan, bat, connMode, applianceOverrides = {} }) {
+export function loadShapeForMonth({ counts, sq, month, plan, bat, baselineFrac, applianceOverrides = {} }) {
   const isSummer = plan.summerMonths.includes(month);
   const total = Array(24).fill(0);
   const addressable = Array(24).fill(0);
   const blocked = [];
   const servedNames = [];
 
-  // house baseline — always cord-adjacent in practice (lighting, plugs)
+  // House baseline: lighting, networking, standby, main fridge. These sit on
+  // circuits all over the house. A plug-in battery reaches only what is
+  // physically plugged into it — a fraction of the baseline, never all of it.
+  const bFrac = baselineFrac ?? 0.3;
   const baseKw = baselineKw(sq);
   const baseProf = PROFILES.evening;
   for (let h = 0; h < 24; h++) {
     const kwh = baseKw * 24 * baseProf[h];
     total[h] += kwh;
-    addressable[h] += kwh; // baseline is small and always servable
+    addressable[h] += kwh * bFrac;
   }
 
   Object.entries(counts).forEach(([id, qty]) => {
@@ -90,7 +93,7 @@ export function loadShapeForMonth({ counts, sq, month, plan, bat, connMode, appl
     const hrsDay = applianceOverrides[id]?.hrsDay ?? a.hrsDay;
     const prof = PROFILES[applianceOverrides[id]?.prof ?? a.prof];
 
-    const reason = servabilityFailure(a, kwRun, surge, bat, connMode);
+    const reason = servabilityFailure(a, kwRun, surge, bat);
     for (let h = 0; h < 24; h++) {
       const kwh = kwRun * hrsDay * prof[h] * qty;
       total[h] += kwh;
@@ -104,11 +107,9 @@ export function loadShapeForMonth({ counts, sq, month, plan, bat, connMode, appl
 }
 
 /** Why a battery cannot serve this load. Returns null if it can. */
-export function servabilityFailure(a, kwRun, surge, bat, connMode) {
-  const panel = connMode === "panel";
-  if (!a.cord && !panel) return "hardwired — needs a transfer switch or subpanel";
-  if (panel && !bat.pnl) return "this unit cannot drive a subpanel";
-  if (a.volts > bat.vo) return `needs 240V — unit is ${bat.vo}V`;
+export function servabilityFailure(a, kwRun, surge, bat) {
+  if (!a.cord) return "hardwired — not reachable by a plug-in unit";
+  if (a.volts > bat.vo) return `needs a 240V outlet — unit is ${bat.vo}V`;
   if (kwRun > bat.pw + 1e-9) return `draws ${kwRun.toFixed(1)} kW — inverter is ${bat.pw} kW`;
   if (surge > bat.sg + 1e-9) return `surges to ${surge.toFixed(1)} kW — surge limit is ${bat.sg} kW`;
   return null;
@@ -134,6 +135,17 @@ export function dispatchDay({ rateArr, loadArr, invKw, availKwh, chargeRate, cha
   }
 
   let discharged = d.reduce((a, b) => a + b, 0);
+  const energyLimited = rem <= 1e-9 && discharged > 0;
+
+  // Did the inverter ceiling cost us anything? Only counts if we still had
+  // stored energy available when we hit the ceiling.
+  let powerCapped = 0;
+  if (!energyLimited) {
+    for (let h = 0; h < 24; h++) {
+      if (rateArr[h] > marginalCost && loadArr[h] > invKw + 1e-9) powerCapped += loadArr[h] - invKw;
+    }
+  }
+
   const needIn = discharged / RTE;
   const maxIn = chargeHrs * chargeKw;
   const chargeLimited = needIn > maxIn + 1e-9;
@@ -148,8 +160,8 @@ export function dispatchDay({ rateArr, loadArr, invKw, availKwh, chargeRate, cha
   return {
     d, discharged,
     valueUSD: (revenueC - costC) / 100,
-    chargeLimited,
-    energyLimited: rem <= 1e-9 && discharged > 0,
+    chargeLimited, energyLimited, powerCapped,
+    headroomKwh: rem,
     unservedPeak: peakUnserved(rateArr, loadArr, d, marginalCost),
   };
 }
@@ -168,15 +180,16 @@ function peakUnserved(rateArr, loadArr, d, marginal) {
  *                      protect its DR baseline. 0 = shave daily.
  * @param opts.eventDays number of DR event days/yr that must be shaved regardless
  */
-export function annualArbitrage({ plan, bat, counts, sq, connMode, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides }) {
+export function annualArbitrage({ plan, bat, counts, sq, baselineFrac, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides }) {
   const months = [];
   let usd = 0, kwh = 0, cycles = 0, anyChargeLimited = false, anyPowerLimited = false;
+  const bind = { energy: 0, power: 0, charge: 0, load: 0 };
   const avail = bat.kw * USABLE_SOC * capFrac;
   const shapeSample = { weekday: null, weekend: null, month: 6 };
 
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, connMode, applianceOverrides });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, baselineFrac, applianceOverrides });
     const dc = dayCounts(m);
 
     const run = (rateArr, nDays) => {
@@ -186,7 +199,13 @@ export function annualArbitrage({ plan, bat, counts, sq, connMode, capFrac = 1, 
         chargeRate: cw.rate, chargeKw: bat.ck, chargeHrs: cw.hours,
       });
       if (r.chargeLimited) anyChargeLimited = true;
-      if (r.unservedPeak > 0.05) anyPowerLimited = true;
+      if (r.powerCapped > 0.05) anyPowerLimited = true;
+      if (nDays > 0) {
+        if (r.chargeLimited) bind.charge += nDays;
+        else if (r.energyLimited) bind.energy += nDays;
+        else if (r.powerCapped > 0.05) bind.power += nDays;
+        else bind.load += nDays;
+      }
       return { ...r, nDays };
     };
 
@@ -223,20 +242,26 @@ export function annualArbitrage({ plan, bat, counts, sq, connMode, capFrac = 1, 
   const peakWindowLoadKwh = peakHours.reduce((s, h) => s + (summerShape?.loadShape[h] ?? 0), 0);
   const spreadC = plan.s.rPeak - Math.min(plan.s.rOff, plan.s.superOff ? plan.s.rSuperOff : plan.s.rOff);
 
+  const bindTotal = bind.energy + bind.power + bind.charge + bind.load;
+  const bindingConstraint = bindTotal === 0 ? "none"
+    : Object.entries(bind).sort((a, b) => b[1] - a[1])[0][0];
+
   return {
     usd, kwh, cycles, months, blocked, anyChargeLimited, anyPowerLimited,
-    peakWindowLoadKwh, peakWindowHours: peakHours.length, spreadC, sample: shapeSample,
+    peakWindowLoadKwh, peakWindowHours: peakHours.length, spreadC,
+    bind, bindingConstraint, bindShare: bindTotal ? bind[bindingConstraint] / bindTotal : 0,
+    sample: shapeSample,
   };
 }
 
 // --- what the customer's bill actually does --------------------------------
 
 /** Monthly bill with and without the battery, including fixed charges. */
-export function billComparison({ plan, arb, counts, sq, bat, connMode }) {
+export function billComparison({ plan, arb, counts, sq, bat, baselineFrac, applianceOverrides }) {
   const rows = [];
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, connMode });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, baselineFrac, applianceOverrides });
     const dc = dayCounts(m);
     const dayCost = (rateArr) => ls.total.reduce((s, kwh, h) => s + kwh * rateArr[h], 0) / 100;
     const without = dayCost(rs.weekday) * dc.weekday + dayCost(rs.weekend) * dc.weekend + plan.fixed;
@@ -300,13 +325,13 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, connMode, years, spreadEsc, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
+export function projectAsset({ plan, bat, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
   const rows = [];
   let cumCycles = 0;
 
   for (let y = 1; y <= years; y++) {
     const capFrac = Math.max(0.5, 1 - FADE_AT_RATED * (cumCycles / bat.cyc));
-    const arb = annualArbitrage({ plan, bat, counts, sq, connMode, capFrac, preserve, eventDays });
+    const arb = annualArbitrage({ plan, bat, counts, sq, baselineFrac, applianceOverrides, capFrac, preserve, eventDays });
     cumCycles += arb.cycles;
 
     const esc = Math.pow(1 + spreadEsc / 100, y - 1);
@@ -452,4 +477,44 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
     meetsAggMin: fleetKw >= minAggKw,
     unitsForAggMin: deliverableKw > 0 ? Math.ceil(minAggKw / (deliverableKw * dispatchSuccess)) : Infinity,
   };
+}
+
+// --- battery selection -----------------------------------------------------
+
+/**
+ * Ranks every battery on discounted net value to whoever pays for the hardware.
+ *
+ *   value = NPV(annual bill savings + CPP avoidance - replacement cost) - purchase price
+ *
+ * Deliberately NOT the same objective as operator IRR: an operator buying at a
+ * volume discount and keeping DR revenue optimizes something different. Callers
+ * that want the operator's pick should pass `hwPct` and `drFn`.
+ */
+export function rankBatteries({ plan, batteries, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays, discount, hwPct = 100, drFn }) {
+  const rows = batteries.map((bat) => {
+    const proj = projectAsset({
+      plan, bat, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays,
+      drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
+      hwCostFn: () => bat.c * (hwPct / 100),
+    });
+    const cost = bat.c * (hwPct / 100);
+    const flows = [-cost, ...proj.map((r) => r.arbUSD + r.drUSD - (r.replaceCost || 0))];
+    const y1 = proj[0] || { arbUSD: 0, drUSD: 0 };
+    const arb1 = annualArbitrage({ plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays });
+
+    return {
+      bat, cost,
+      npv: npv(discount / 100, flows),
+      irr: irr(flows),
+      payback: paybackYear(flows),
+      yr1: y1.arbUSD + y1.drUSD,
+      cyclesYr: arb1.cycles,
+      eolYear: proj.findIndex((r) => r.replaced) + 1 || null,
+      binding: arb1.bindingConstraint,
+      blockedCount: arb1.blocked.length,
+      lifetime: flows.reduce((a, b) => a + b, 0),
+    };
+  });
+  rows.sort((a, b) => b.npv - a.npv);
+  return rows;
 }

@@ -233,7 +233,9 @@ export const PLANS = [
 //   kw   usable energy, kWh          pw   continuous AC output, kW
 //   sg   surge output, kW            ck   AC charge input rate, kW
 //   vo   output voltage              cyc  rated cycles to 80% capacity
-//   pnl  can drive a transfer switch / critical-loads subpanel
+//   pnl  (retained for reference) unit supports a transfer switch. Not modeled:
+//        subpanel install is ~$1,500-4,000 and converts the unit into an
+//        interconnected ESS, which is the category this business avoids.
 //
 // pw / vo / kw are manufacturer spec. sg, ck, cyc are ESTIMATES from spec
 // sheets and chemistry class — treat cyc especially as an assumption, since
@@ -352,7 +354,7 @@ export const APPLIANCE_CATS = [
   ]},
   { t: "EV charging", i: [
     { id: "e1",  n: "EV Level 1 (1.4 kW)",  kwRun: 1.4,  hrsDay: 8,  sg: 1.4, volts: 120, cord: true,  prof: "evNoTimer", season: "all" },
-    { id: "e2",  n: "EV Level 2 (7.7 kW)",  kwRun: 7.7,  hrsDay: 3.5,sg: 7.7, volts: 240, cord: false, prof: "overnight", season: "all" },
+    { id: "e2",  n: "EV Level 2 (7.7 kW)",  kwRun: 7.7,  hrsDay: 3.5,sg: 7.7, volts: 240, cord: true,  prof: "overnight", season: "all" },
   ]},
 ];
 

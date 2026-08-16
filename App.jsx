@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
   Legend, BarChart, Bar, ComposedChart, Area, Cell,
@@ -9,7 +9,7 @@ import {
 } from "./tariffs.js";
 import {
   annualArbitrage, drRevenue, projectAsset, operatorEconomics, fleetEconomics,
-  billComparison, rateShapeForMonth, chargeWindow, servabilityFailure,
+  billComparison, rateShapeForMonth, chargeWindow, servabilityFailure, rankBatteries,
   USABLE_SOC, RTE,
 } from "./model.js";
 
@@ -70,7 +70,10 @@ export default function Dashboard() {
   const [sq, setSq] = useState(1600);
   const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
   const [batId, setBatId] = useState("al");
-  const [connMode, setConnMode] = useState("cord");
+  const [baselineFrac, setBaselineFrac] = useState(30);
+  const [evTimer, setEvTimer] = useState(false);
+  const [ranking, setRanking] = useState(null);
+  const [rankBuyer, setRankBuyer] = useState("homeowner");
   const [spreadEsc, setSpreadEsc] = useState(2);
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(APPLIANCE_CATS.map((_, i) => [i, i !== 1])));
   const [chartMonth, setChartMonth] = useState(6);
@@ -120,6 +123,18 @@ export default function Dashboard() {
 
   const bat = useMemo(() => BATTERIES.find((b) => b.id === batId), [batId]);
 
+  // Tariffs that require an EV are meaningless without EV load in the model.
+  const EV_CAT = APPLIANCE_CATS.findIndex((c) => c.t === "EV charging");
+  useEffect(() => { if (plan.ev) setCollapsed((p) => ({ ...p, [EV_CAT]: false })); }, [plan.ev, EV_CAT]);
+  const evLoad = (counts.e1 || 0) + (counts.e2 || 0);
+
+  // Charging schedule, not charger size, decides whether an EV is worth anything
+  // to a battery. A timer that already charges off-peak leaves nothing to shift.
+  const applianceOverrides = useMemo(() => (
+    evTimer ? { e1: { prof: "overnight" }, e2: { prof: "overnight" } }
+            : { e1: { prof: "evNoTimer" }, e2: { prof: "evNoTimer" } }
+  ), [evTimer]);
+
   // -------------------------------------------------------------------------
   // MODEL
   // -------------------------------------------------------------------------
@@ -130,8 +145,8 @@ export default function Dashboard() {
   }, [drEnabled, plan.st]);
 
   const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, connMode, preserve: preserve / 100, eventDays }),
-    [plan, bat, counts, sq, connMode, preserve, eventDays]
+    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: preserve / 100, eventDays }),
+    [plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays]
   );
 
   const dr = useMemo(
@@ -140,10 +155,10 @@ export default function Dashboard() {
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, connMode, years: LIFE, spreadEsc, preserve: preserve / 100, eventDays,
+    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, spreadEsc, preserve: preserve / 100, eventDays,
     drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, connMode, spreadEsc, preserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, spreadEsc, preserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
 
@@ -164,17 +179,17 @@ export default function Dashboard() {
     dispatchSuccess: dispatchSuccess / 100, minAggKw,
   }), [op.opFlows, perMonth, rampMonths, discount, recoveryRate, churn, op.hw, refurb, deliverableKw, dispatchSuccess, minAggKw]);
 
-  const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, connMode }), [plan, arb, counts, sq, bat, connMode]);
+  const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, baselineFrac: baselineFrac / 100, applianceOverrides }), [plan, arb, counts, sq, bat, baselineFrac, applianceOverrides]);
 
   const frontier = useMemo(() => {
     const out = [];
     for (let p = 0; p <= 100; p += 20) {
-      const a = annualArbitrage({ plan, bat, counts, sq, connMode, preserve: p / 100, eventDays });
+      const a = annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: p / 100, eventDays });
       const d = drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: p / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS });
       out.push({ preserve: p, tou: Math.round(a.usd), drv: Math.round(d.total), total: Math.round(a.usd + d.total) });
     }
     return out;
-  }, [plan, bat, counts, sq, connMode, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }, [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const bestPreserve = useMemo(() => frontier.reduce((b, r) => (r.total > b.total ? r : b), frontier[0]), [frontier]);
 
@@ -205,6 +220,28 @@ export default function Dashboard() {
     }
     return out;
   }, [arb, chartMonth, plan, bat]);
+
+  const runRanking = () => {
+    const opMode = rankBuyer === "operator";
+    setRanking(rankBatteries({
+      plan, batteries: BATTERIES, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides,
+      years: LIFE, spreadEsc, preserve: preserve / 100, eventDays, discount,
+      hwPct: opMode ? hwPct : 100,
+      drFn: (b, a, capFrac) => drRevenue({
+        plan, bat: b, arb: a, enabled: opMode ? drEnabled : { cpp: true },
+        preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100,
+        cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
+      }).total,
+    }));
+  };
+
+  const BIND_TEXT = {
+    energy: ["Stored energy", "The battery empties before the peak window ends. A bigger pack helps; a bigger inverter does not."],
+    power: ["Inverter power", "Load in the peak window exceeds the inverter's continuous rating, so some of it stays on the meter even with energy left in the pack. A higher-output unit helps; more kWh does not."],
+    charge: ["Charge window", "The off-peak window is too short to refill the pack at its AC input rate, so it starts the next peak partly empty. A faster-charging unit helps."],
+    load: ["Addressable load", "The battery has energy and power to spare — there simply isn't enough servable load in the peak window to use it. A bigger battery is wasted money; unlocking hardwired loads or a wider peak window is what helps."],
+    none: ["None", "No profitable discharge on this tariff."],
+  };
 
   const setCount = (id, delta) => setCounts((prev) => {
     const cur = prev[id] || 0;
@@ -243,7 +280,7 @@ export default function Dashboard() {
       </div>
 
       <div className="sticky top-2 z-10 mb-5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {[["Plan", plan.n], ["Battery", bat.n], ["Mode", connMode === "cord" ? "Cord-connected" : "Subpanel"],
+        {[["Plan", plan.n], ["Battery", bat.n], ["Limit", BIND_TEXT[arb.bindingConstraint][0]],
           ["TOU", fm(arb.usd) + "/yr"], ["DR", fm(dr.total) + "/yr"]].map(([k, v]) => (
           <div key={k} className="flex items-baseline gap-1.5 min-w-0">
             <span className="font-data text-[10px] uppercase tracking-wider text-zinc-400">{k}</span>
@@ -257,10 +294,25 @@ export default function Dashboard() {
         <div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <Metric label="Bill savings (yr 1)" value={fm(arb.usd)} sub={`${Math.round(arb.kwh)} kWh shifted`} positive={arb.usd > 0} />
-            <Metric label="Addressable peak load" value={arb.peakWindowLoadKwh.toFixed(1) + " kWh"} sub={`over ${arb.peakWindowHours} peak hrs`} />
+            <Metric label="Binding constraint" value={BIND_TEXT[arb.bindingConstraint][0]} sub={`${arb.peakWindowLoadKwh.toFixed(1)} kWh addressable in peak`} />
             <Metric label="Equivalent cycles/yr" value={Math.round(arb.cycles)} sub={`rated ${bat.cyc.toLocaleString()} (${bat.chem})`} positive={arb.cycles * LIFE <= bat.cyc} />
             <Metric label="Simple payback" value={arb.usd > 0 ? (bat.c / arb.usd).toFixed(1) + " yrs" : "Never"} sub={`on ${fm(bat.c)} retail`} positive={arb.usd > 0 && bat.c / arb.usd <= LIFE} />
           </div>
+
+          <div className="mb-4"><Note tone={arb.bindingConstraint === "load" ? "amber" : "zinc"}>
+            <strong>{BIND_TEXT[arb.bindingConstraint][0]} is what limits savings here</strong> on {Math.round(arb.bindShare * 100)}% of
+            billing days. {BIND_TEXT[arb.bindingConstraint][1]} This is the readout to check before changing battery or connection
+            mode — if the constraint is stored energy, unlocking more load changes nothing.
+          </Note></div>
+
+          {plan.ev && evLoad === 0 && (
+            <div className="mb-4"><Note tone="amber">
+              <strong>{plan.n} requires a registered EV to enroll</strong>, but no EV charging is in the load model — so the
+              savings above are for a household that couldn't actually sign up for this rate. EV charging is the largest
+              shiftable load most homes have, and on an EV tariff it usually dominates the result. Add Level 1 or Level 2
+              charging below, or switch to a tariff without the EV requirement.
+            </Note></div>
+          )}
 
           {eolYear > 0 && eolYear <= LIFE && (
             <div className="mb-4"><Note tone="red">
@@ -337,7 +389,11 @@ export default function Dashboard() {
             <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
               {PLANS_SORTED.map((p) => <option key={p.id} value={p.id}>{p.custom ? `-- ${p.n} --` : `${p.n} (${p.st})${p.ev ? " [EV req]" : ""}`}</option>)}
             </select>
-            {plan.ev && <div className="mt-2"><Note tone="amber">Requires EV registration to enroll.</Note></div>}
+            {plan.ev && <div className="mt-2"><Note tone={evLoad === 0 ? "amber" : "green"}>
+              Requires a registered EV to enroll. {evLoad === 0
+                ? "No EV charging is in the load model yet — scroll to the EV charging section below (highlighted) and add it, or the result describes a household that couldn't sign up for this rate."
+                : `EV charging is in the model. It is usually the dominant shiftable load on these tariffs, and the ${plan.s.rPeak - plan.s.rOff}¢ spread is priced for exactly that.`}
+            </Note></div>}
             {!plan.custom ? (
               <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
                 <Row label="Summer peak / off" value={`${plan.s.rPeak}¢ / ${plan.s.rOff}¢`} />
@@ -373,19 +429,78 @@ export default function Dashboard() {
                 </optgroup>
               ))}
             </select>
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              {[["cord", "Cord-connected", "Battery sits in the room. Serves only loads you can physically plug into it. No interconnection, no permit, no electrician."],
-                ["panel", "Critical-loads subpanel", "Battery drives a transfer switch or subpanel. Reaches hardwired loads — and moves the unit into the interconnected-ESS category, which is what device-list DR programs require."]].map(([id, title, body]) => {
-                const ok = id === "cord" || bat.pnl;
+
+            {/* --- battery finder --- */}
+            <div className="mb-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span className="text-sm text-zinc-500 dark:text-zinc-400">Rank all {BATTERIES.length} for a</span>
+                <div className="flex gap-0.5 bg-white dark:bg-zinc-900 p-0.5 rounded-md">
+                  {[["homeowner", "homeowner buying retail"], ["operator", "operator at volume"]].map(([id, lbl]) => (
+                    <button key={id} onClick={() => { setRankBuyer(id); setRanking(null); }} className={`px-2.5 py-1 text-xs font-medium rounded ${rankBuyer === id ? "bg-blue-500 text-white" : "text-zinc-500"}`}>{lbl}</button>
+                  ))}
+                </div>
+                <button onClick={runRanking} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household, and
+                this connection mode — purchase price, bill savings, {rankBuyer === "operator" ? "the DR stack you have enabled," : "CPP avoidance,"} and any
+                mid-life replacement. {rankBuyer === "operator" ? `Hardware at ${hwPct}% of retail.` : "Hardware at full retail; DR revenue excluded, since a homeowner doesn't capture it."}
+              </p>
+
+              {ranking && (() => {
+                const winners = ranking.filter((r) => r.npv > 0);
+                const top = ranking[0];
                 return (
-                  <button key={id} disabled={!ok} onClick={() => setConnMode(id)} className={`p-3 rounded-lg border text-xs leading-relaxed text-left transition-colors ${connMode === id ? "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20" : "border-zinc-200 dark:border-zinc-700"} ${ok ? "cursor-pointer" : "opacity-40 cursor-not-allowed"}`}>
-                    <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 mb-1">{title}</div>
-                    <p className="text-zinc-500 dark:text-zinc-400">{body}</p>
-                    {!ok && <p className="text-amber-600 dark:text-amber-400 mt-1">{bat.n} can't drive a subpanel.</p>}
-                  </button>
+                  <div className="mt-3">
+                    <div className={`p-3 rounded-lg mb-2 text-xs leading-relaxed ${winners.length ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "bg-amber-50 dark:bg-amber-900/25 text-amber-800 dark:text-amber-300"}`}>
+                      {winners.length
+                        ? <><strong>{top.bat.n}</strong> — NPV {fm(top.npv)}, payback {top.payback === Infinity ? "never" : top.payback.toFixed(1) + " yrs"}. {winners.length} of {ranking.length} clear the {discount}% hurdle.</>
+                        : <><strong>Nothing clears the {discount}% hurdle on this configuration.</strong> {top.bat.n} is the least-bad at {fm(top.npv)}. This is the normal result for a homeowner at retail prices — it is the reason a company-owned fleet buying at volume is the model that works, and you can see that by switching the toggle above to operator.</>}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="text-zinc-400 text-left">
+                          <th className="py-1 pr-2 font-medium">Unit</th><th className="py-1 px-2 font-medium text-right">Cost</th>
+                          <th className="py-1 px-2 font-medium text-right">Yr 1</th><th className="py-1 px-2 font-medium text-right">NPV</th>
+                          <th className="py-1 px-2 font-medium text-right">Payback</th><th className="py-1 pl-2 font-medium">Limited by</th>
+                        </tr></thead>
+                        <tbody>
+                          {ranking.map((r, i) => (
+                            <tr key={r.bat.id} onClick={() => setBatId(r.bat.id)} className={`cursor-pointer border-t border-zinc-200 dark:border-zinc-700 ${r.bat.id === batId ? "bg-blue-50 dark:bg-blue-900/25" : "hover:bg-white dark:hover:bg-zinc-900"}`}>
+                              <td className="py-1.5 pr-2">
+                                <span className="text-zinc-400 mr-1.5">{i + 1}</span>
+                                <span className="font-medium text-zinc-800 dark:text-zinc-200">{r.bat.n}</span>
+                                {r.eolYear && <span className="ml-1.5 text-[10px] text-red-500">replace y{r.eolYear}</span>}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{fm(r.cost)}</td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{fm(r.yr1)}</td>
+                              <td className={`py-1.5 px-2 text-right font-data font-medium ${r.npv > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.npv)}</td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{r.payback === Infinity ? "—" : r.payback.toFixed(1)}</td>
+                              <td className="py-1.5 pl-2 text-zinc-400">{BIND_TEXT[r.binding][0]}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-2">Click any row to load that unit. Note how often the cheapest unit wins: on an energy-limited household the extra kWh in a larger pack never get used, so paying for them destroys value.</p>
+                  </div>
                 );
-              })}
+              })()}
             </div>
+            <div className="mb-2"><Note>
+              Every unit here is modeled <strong>cord-connected</strong>: it sits in the room and serves what you plug into it.
+              No electrician, no permit, no interconnection — which is the entire premise of the business, and the reason it
+              can be sold and shipped like a consumer product.
+              <br /><br />
+              Subpanel and transfer-switch operation is deliberately <em>not</em> modeled. It would reach hardwired loads, but a
+              critical-loads subpanel runs roughly $1,500–4,000 installed (an assumption, and higher if the main panel needs
+              work) — more than most of these batteries cost. It also reclassifies the unit as an interconnected ESS, which
+              triggers the permitting and utility-approval process this model exists to avoid. Showing that benefit without its
+              cost would have flattered every result.
+              <br /><br />
+              240V output still matters: an EV Level 2 charger plugs into a NEMA 14-50, so a 240V unit can serve it with no
+              wiring work. That is the one large 240V load a plug-in battery genuinely reaches.
+            </Note></div>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
               <Row label="Usable energy" value={`${(bat.kw * USABLE_SOC).toFixed(2)} kWh`} hint={`${(USABLE_SOC * 100).toFixed(0)}% of ${bat.kw}`} />
               <Row label="Continuous / surge output" value={`${bat.pw} / ${bat.sg} kW @ ${bat.vo}V`} />
@@ -397,25 +512,46 @@ export default function Dashboard() {
 
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2">
+            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
               <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
+              <Slider label="Baseline on the battery" value={baselineFrac} onChange={setBaselineFrac} min={0} max={100} step={5} fmt={(v) => v + "%"} />
+              <Note>
+                Lighting, networking, standby and the main fridge sit on circuits all over the house. A battery in the corner
+                reaches only what's plugged into it — one or two outlets' worth, so 20–40% is realistic. A critical-loads
+                subpanel reaches whatever is wired to that panel, typically 50–70%. This is the setting that determines whether
+                the battery can ever cover the whole house, and the answer is no: some load always comes off the meter.
+              </Note>
             </div>
             {APPLIANCE_CATS.map((cat, ci) => {
               const active = cat.i.reduce((s, a) => s + (counts[a.id] || 0), 0);
               const open = !collapsed[ci];
               return (
                 <div key={ci} className="mb-1">
-                  <button onClick={() => setCollapsed((p) => ({ ...p, [ci]: !p[ci] }))} className="w-full flex items-center gap-2 py-2 text-xs font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                  <button onClick={() => setCollapsed((p) => ({ ...p, [ci]: !p[ci] }))} className={`w-full flex items-center gap-2 py-2 text-xs font-medium uppercase tracking-wider ${plan.ev && ci === EV_CAT ? "text-amber-600 dark:text-amber-400" : "text-zinc-400 dark:text-zinc-500"}`}>
                     <span className={`inline-block transition-transform ${open ? "" : "-rotate-90"}`}>▾</span>
                     {cat.t}{active > 0 && ` (${active})`}
+                    {plan.ev && ci === EV_CAT && (
+                      <span className={`ml-1 text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded font-medium ${evLoad === 0 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
+                        {evLoad === 0 ? "required by this tariff — none added" : "required by this tariff ✓"}
+                      </span>
+                    )}
                   </button>
                   {open && (
+                    <>
+                    {ci === EV_CAT && evLoad > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap mb-2 px-1">
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Charging schedule</span>
+                        {[[false, "Plugs in on arrival"], [true, "Charges on a timer"]].map(([v, lbl]) => (
+                          <button key={String(v)} onClick={() => setEvTimer(v)} className={`text-[11px] px-2 py-1 rounded-md font-medium border ${evTimer === v ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600 text-zinc-500"}`}>{lbl}</button>
+                        ))}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 pb-2">
                       {cat.i.map((a) => {
                         const n = counts[a.id] || 0;
                         const kwRun = a.szf ? a.szf(sq) : a.kwRun;
                         const surge = a.sgMult ? kwRun * a.sgMult : a.sg;
-                        const fail = servabilityFailure(a, kwRun, surge, bat, connMode);
+                        const fail = servabilityFailure(a, kwRun, surge, bat);
                         return (
                           <div key={a.id} className={`flex flex-col p-2 rounded-lg border text-sm ${n > 0 ? (fail ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700") : "border-zinc-200 dark:border-zinc-700"}`}>
                             <div className="flex items-center gap-1.5">
@@ -434,11 +570,24 @@ export default function Dashboard() {
                         );
                       })}
                     </div>
+                    </>
                   )}
                 </div>
               );
             })}
           </div>
+
+          {evLoad > 0 && (
+            <div className="mb-4"><Note tone={evTimer ? "amber" : "zinc"}>
+              <strong>Charging schedule matters more than charger size.</strong>{" "}
+              {evTimer
+                ? "A timer already draws at off-peak prices, so there is nothing left for the battery to shift \u2014 which is why the savings collapse on this setting. The battery is competing with a free scheduling feature the car already has."
+                : "A driver who plugs in on arrival draws straight through the peak window, and that is precisely the load a battery can move."}{" "}
+              Most EV owners on a TOU rate already run a timer, because the utility told them to when they enrolled. The
+              addressable customer is the one who doesn\u2019t \u2014 and on an EV tariff that single distinction swings the result
+              further than the choice of battery does.
+            </Note></div>
+          )}
 
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Rate outlook</p>
@@ -457,6 +606,18 @@ export default function Dashboard() {
       {/* ================================================================= */}
       {tab === "dr" && (
         <div>
+          <div className="mb-4"><Note>
+            <strong>CPP = Critical Peak Pricing.</strong> You enroll in an overlay on top of your normal TOU rate. In exchange
+            for a small year-round discount, you agree that on a limited number of days — called the afternoon before, typically
+            9 to 18 times a summer — the peak price jumps by a large adder, {plan.cpp ? `${plan.cpp.adder}¢/kWh on ${plan.cpp.n}` : "usually 50–80¢/kWh"}.
+            A battery serving your load through the event means you never pay the adder.
+            <br /><br />
+            That mechanism is why CPP behaves differently from every other program here. It is <em>bill avoidance</em>, not a
+            rebate: nobody measures you against a baseline, so nothing erodes, and it stacks on top of daily TOU shaving without
+            conflict. The model counts only the avoided adder — the enrollment discount is excluded, because you'd receive it
+            with or without a battery, so it isn't value the battery created.
+          </Note></div>
+
           <div className="mb-4"><Note tone="amber">
             <strong>You cannot earn full TOU arbitrage and full meter-based DR from the same battery.</strong> Peak Time Rebates and
             ELRP pay for measured reduction against a rolling similar-day baseline. A battery that shaves every day suppresses its own
@@ -514,7 +675,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <label className={`flex items-center gap-2 font-medium text-sm min-w-[200px] ${ok ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
                         <input type="checkbox" disabled={!ok} checked={!!(drEnabled[p.id] && ok)} onChange={(e) => setDrEnabled((v) => ({ ...v, [p.id]: e.target.checked }))} className="w-4 h-4" />
-                        {p.id === "cpp" && plan.cpp ? plan.cpp.n : p.n}
+                        {p.id === "cpp" && plan.cpp ? `${plan.cpp.n} (critical peak pricing)` : p.n}
                       </label>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium ${badge[1]}`}>{badge[0]}</span>
                       {p.basis === "indirect" && drEnabled[p.id] && ok && (
