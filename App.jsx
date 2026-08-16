@@ -299,8 +299,7 @@ export default function Dashboard() {
 
   const tabs = [
     { id: "model", label: "Customer bill" },
-    { id: "dr", label: "DR stack" },
-    { id: "operator", label: "Unit economics" },
+    { id: "operator", label: "Operator economics" },
     { id: "fleet", label: "Fleet & funding" },
     { id: "programs", label: "Program reference" },
   ];
@@ -411,7 +410,7 @@ export default function Dashboard() {
                   </div>
                 )}
                 <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
-                  Adds a CPP row to the DR stack tab exactly like a real tariff's overlay: on the events you set, the peak
+                  Adds a CPP row to the Operator economics tab exactly like a real tariff's overlay: on the events you set, the peak
                   price jumps by the adder above, and a battery serving load through the event avoids it. Bill avoidance,
                   not a rebate — no baseline to erode, and it stacks cleanly with daily TOU shaving.
                 </p>
@@ -724,141 +723,141 @@ export default function Dashboard() {
       )}
 
       {/* ================================================================= */}
-      {tab === "dr" && (
-        <div>
-          <div className="mb-4 flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Tariff</span>
-            <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="flex-1 min-w-[220px] p-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
-              {PLANS_SORTED.map((p) => <option key={p.id} value={p.id}>{p.custom ? `-- ${p.n} --` : `${p.n} (${p.st})${p.ev ? " [EV req]" : ""}`}</option>)}
-            </select>
-          </div>
-
-          <div className="mb-4"><Note>
-            <strong>CPP = Critical Peak Pricing.</strong> You enroll in an overlay on top of your normal TOU rate. In exchange
-            for a small year-round discount, you agree that on a limited number of days — called the afternoon before, typically
-            9 to 18 times a summer — the peak price jumps by a large adder, {plan.cpp ? `${plan.cpp.adder}¢/kWh on ${plan.cpp.n}` : "usually 50–80¢/kWh"}.
-            A battery serving your load through the event means you never pay the adder.
-            <br /><br />
-            That mechanism is why CPP behaves differently from every other program here. It is <em>bill avoidance</em>, not a
-            rebate: nobody measures you against a baseline, so nothing erodes, and it stacks on top of daily TOU shaving without
-            conflict. The model counts only the avoided adder — the enrollment discount is excluded, because you'd receive it
-            with or without a battery, so it isn't value the battery created.
-          </Note></div>
-
-          <div className="mb-4"><Note tone="amber">
-            <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
-            ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
-            recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
-            "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
-            days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
-            a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
-            is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
-            there's no baseline to protect and they stack cleanly with daily shaving.
-          </Note></div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner" />
-            <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
-            <Metric label="Forfeited to erosion" value={fm(dr.foregone)} sub="baseline-basis only" positive={dr.foregone > 0 ? false : undefined} />
-            <Metric label="Combined" value={fm(arb.usd + dr.total)} positive={arb.usd + dr.total > 0} />
-          </div>
-
-          <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Programs</p>
-            <div className="bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-hidden">
-              {DR_PROGRAMS.map((p) => {
-                const ok = (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp);
-                const item = dr.items.find((x) => x.id === p.id);
-                const badge = { baseline: ["Erodes", "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"], avoidance: ["Stacks", "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"], indirect: ["Indirect", "bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"] }[p.basis];
-                return (
-                  <div key={p.id} className="border-b border-zinc-200 dark:border-zinc-700 last:border-0 p-3">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <label className={`flex items-center gap-2 font-medium text-sm min-w-[200px] ${ok ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
-                        <input type="checkbox" disabled={!ok} checked={!!(drEnabled[p.id] && ok)} onChange={(e) => setDrEnabled((v) => ({ ...v, [p.id]: e.target.checked }))} className="w-4 h-4" />
-                        {p.id === "cpp" && plan.cpp ? `${plan.cpp.n} (critical peak pricing)` : p.n}
-                      </label>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium ${badge[1]}`}>{badge[0]}</span>
-                      {p.basis === "indirect" && drEnabled[p.id] && ok && (
-                        <span className="flex items-center gap-1 text-sm"><span className="text-zinc-400">$</span>
-                          <input type="number" min={0} step={5} value={drOverrides[p.id] ?? 0} onChange={(e) => setDrOverrides((v) => ({ ...v, [p.id]: Math.max(0, +e.target.value || 0) }))} className="p-1 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
-                          <span className="text-zinc-400">/yr</span></span>
-                      )}
-                      <span className="ml-auto font-data text-sm font-medium text-green-600">{item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}</span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
-                    {item && item.eroded > 0 && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Would be {fm(item.gross)}/yr if this battery idled to protect its baseline — but it always shaves daily
-                        (see Dispatch strategy below), so the full amount is forfeited to erosion.
-                      </p>
-                    )}
-                    {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
-              <Note>
-                This battery always shaves every peak day for TOU savings — it never sits idle to protect a Peak Time Rebates /
-                ELRP baseline. If a battery only pencils out by holding it back from doing its job, that's a sign the battery
-                isn't a good purchase for this household, not a dispatch strategy worth modeling. The tradeoff was real —
-                idling can inflate a baseline-basis payment — but it's not a dial here: baseline-basis programs stay toggleable
-                in Programs above and are shown honestly at what they're actually worth under daily use, which is $0.
-                CPP-style overlays are unaffected: they're bill avoidance against a published adder, not a measured reduction,
-                so they stack cleanly with daily shaving regardless.
-              </Note>
-              <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
-              <Note tone={anyDrActive ? "zinc" : "amber"}>
-                {anyDrActive ? (
-                  <>Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low
-                  on charge when the event fires. {eventDays > 0 && <>Of the <strong>{eventDays} baseline-program event
-                  days/yr</strong>, about <strong>{Math.round((eventDays * dispatchSuccess) / 100)}</strong> are successfully
-                  dispatched at {dispatchSuccess}%. </>}Telemetry is this fleet's real edge — knowing state of charge and
-                  location lets you target low-risk accounts and route around units that won't deliver — but it doesn't stop a
-                  customer from unplugging the unit or taking it camping, so treat 100% as unrealistic even with full
-                  visibility. Planning ranges by fleet visibility: <strong>60–70%</strong> with no location or
-                  state-of-charge signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a customer before
-                  a call; <strong>85–95%</strong> with real dispatch telemetry and low-risk-account targeting — the top of
-                  that range, 95%, is the default here. Replace this slider with an observed rate the moment you have one.</>
-                ) : (
-                  <>Grayed out: no DR program is enabled and eligible on {plan.n} right now — check a box in Programs above
-                  to make this slider do anything.</>
-                )}
-              </Note>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch outcome</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Metric label="TOU arbitrage" value={fm(arb.usd)} sub="to the homeowner, at current settings" positive={arb.usd > 0} />
-              <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
-            </div>
-            <p className="text-xs text-zinc-400 mt-1.5">
-              DR revenue shifts live with the dispatch success slider above. TOU arbitrage is fixed by the tariff, battery, and
-              household load set elsewhere — dispatch strategy on this tab no longer touches it, since the battery never idles
-              to trade it away.
-            </p>
-          </div>
-
-          {plan.cpp && (
-            <div className="mb-5">
-              <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
-                <Slider label={`${plan.cpp.n} events/yr`} value={cppEvents ?? plan.cpp.ev} onChange={setCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ================================================================= */}
       {tab === "operator" && (() => {
         return (
           <div>
+            <div className="mb-4 flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Tariff</span>
+              <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="flex-1 min-w-[220px] p-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
+                {PLANS_SORTED.map((p) => <option key={p.id} value={p.id}>{p.custom ? `-- ${p.n} --` : `${p.n} (${p.st})${p.ev ? " [EV req]" : ""}`}</option>)}
+              </select>
+            </div>
+
+            <div className="mb-4"><Note>
+              <strong>CPP = Critical Peak Pricing.</strong> You enroll in an overlay on top of your normal TOU rate. In exchange
+              for a small year-round discount, you agree that on a limited number of days — called the afternoon before, typically
+              9 to 18 times a summer — the peak price jumps by a large adder, {plan.cpp ? `${plan.cpp.adder}¢/kWh on ${plan.cpp.n}` : "usually 50–80¢/kWh"}.
+              A battery serving your load through the event means you never pay the adder.
+              <br /><br />
+              That mechanism is why CPP behaves differently from every other program here. It is <em>bill avoidance</em>, not a
+              rebate: nobody measures you against a baseline, so nothing erodes, and it stacks on top of daily TOU shaving without
+              conflict. The model counts only the avoided adder — the enrollment discount is excluded, because you'd receive it
+              with or without a battery, so it isn't value the battery created.
+            </Note></div>
+
+            <div className="mb-4"><Note tone="amber">
+              <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
+              ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
+              recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
+              "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
+              days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
+              a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
+              is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
+              there's no baseline to protect and they stack cleanly with daily shaving.
+            </Note></div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner" />
+              <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
+              <Metric label="Forfeited to erosion" value={fm(dr.foregone)} sub="baseline-basis only" positive={dr.foregone > 0 ? false : undefined} />
+              <Metric label="Combined" value={fm(arb.usd + dr.total)} positive={arb.usd + dr.total > 0} />
+            </div>
+
+            <div className="mb-5">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Programs</p>
+              <div className="bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-hidden">
+                {DR_PROGRAMS.map((p) => {
+                  const ok = (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp);
+                  const item = dr.items.find((x) => x.id === p.id);
+                  const badge = { baseline: ["Erodes", "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"], avoidance: ["Stacks", "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"], indirect: ["Indirect", "bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"] }[p.basis];
+                  return (
+                    <div key={p.id} className="border-b border-zinc-200 dark:border-zinc-700 last:border-0 p-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <label className={`flex items-center gap-2 font-medium text-sm min-w-[200px] ${ok ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
+                          <input type="checkbox" disabled={!ok} checked={!!(drEnabled[p.id] && ok)} onChange={(e) => setDrEnabled((v) => ({ ...v, [p.id]: e.target.checked }))} className="w-4 h-4" />
+                          {p.id === "cpp" && plan.cpp ? `${plan.cpp.n} (critical peak pricing)` : p.n}
+                        </label>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium ${badge[1]}`}>{badge[0]}</span>
+                        {p.basis === "indirect" && drEnabled[p.id] && ok && (
+                          <span className="flex items-center gap-1 text-sm"><span className="text-zinc-400">$</span>
+                            <input type="number" min={0} step={5} value={drOverrides[p.id] ?? 0} onChange={(e) => setDrOverrides((v) => ({ ...v, [p.id]: Math.max(0, +e.target.value || 0) }))} className="p-1 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                            <span className="text-zinc-400">/yr</span></span>
+                        )}
+                        <span className="ml-auto font-data text-sm font-medium text-green-600">{item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}</span>
+                      </div>
+                      <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
+                      {item && item.eroded > 0 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Would be {fm(item.gross)}/yr if this battery idled to protect its baseline — but it always shaves daily
+                          (see Dispatch strategy below), so the full amount is forfeited to erosion.
+                        </p>
+                      )}
+                      {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
+              <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
+                <Note>
+                  This battery always shaves every peak day for TOU savings — it never sits idle to protect a Peak Time Rebates /
+                  ELRP baseline. If a battery only pencils out by holding it back from doing its job, that's a sign the battery
+                  isn't a good purchase for this household, not a dispatch strategy worth modeling. The tradeoff was real —
+                  idling can inflate a baseline-basis payment — but it's not a dial here: baseline-basis programs stay toggleable
+                  in Programs above and are shown honestly at what they're actually worth under daily use, which is $0.
+                  CPP-style overlays are unaffected: they're bill avoidance against a published adder, not a measured reduction,
+                  so they stack cleanly with daily shaving regardless.
+                </Note>
+                <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
+                <Note tone={anyDrActive ? "zinc" : "amber"}>
+                  {anyDrActive ? (
+                    <>Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low
+                    on charge when the event fires. {eventDays > 0 && <>Of the <strong>{eventDays} baseline-program event
+                    days/yr</strong>, about <strong>{Math.round((eventDays * dispatchSuccess) / 100)}</strong> are successfully
+                    dispatched at {dispatchSuccess}%. </>}Telemetry is this fleet's real edge — knowing state of charge and
+                    location lets you target low-risk accounts and route around units that won't deliver — but it doesn't stop a
+                    customer from unplugging the unit or taking it camping, so treat 100% as unrealistic even with full
+                    visibility. Planning ranges by fleet visibility: <strong>60–70%</strong> with no location or
+                    state-of-charge signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a customer before
+                    a call; <strong>85–95%</strong> with real dispatch telemetry and low-risk-account targeting — the top of
+                    that range, 95%, is the default here. Replace this slider with an observed rate the moment you have one.</>
+                  ) : (
+                    <>Grayed out: no DR program is enabled and eligible on {plan.n} right now — check a box in Programs above
+                    to make this slider do anything.</>
+                  )}
+                </Note>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch outcome</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Metric label="TOU arbitrage" value={fm(arb.usd)} sub="to the homeowner, at current settings" positive={arb.usd > 0} />
+                <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
+              </div>
+              <p className="text-xs text-zinc-400 mt-1.5">
+                DR revenue shifts live with the dispatch success slider above. TOU arbitrage is fixed by the tariff, battery, and
+                household load set elsewhere — dispatch strategy on this tab no longer touches it, since the battery never idles
+                to trade it away.
+              </p>
+            </div>
+
+            {plan.cpp && (
+              <div className="mb-5">
+                <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                  <Slider label={`${plan.cpp.n} events/yr`} value={cppEvents ?? plan.cpp.ev} onChange={setCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
+                </div>
+              </div>
+            )}
+
+            <div className="mb-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-3">Result — what the programs above are worth to each side</p>
+            </div>
+
             <div className={`py-5 px-5 rounded-xl mb-5 ${dealHo && dealOp ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
               <div className={`text-lg font-medium mb-1 ${dealHo && dealOp ? "text-green-600" : "text-red-500"}`}>
                 {dealHo && dealOp ? `Clears on both sides — ${pct(op.opIRR)} unit IRR against a ${discount}% hurdle`
@@ -1059,7 +1058,7 @@ export default function Dashboard() {
                 {p.st && <span className="text-xs font-normal text-zinc-400">{p.st.join(", ")}</span>}
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{p.note}</p>
-              {p.basis === "baseline" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">Baseline-measured — value decays if the battery also shaves TOU peaks daily. See the DR stack tab.</p>}
+              {p.basis === "baseline" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">Baseline-measured — value decays if the battery also shaves TOU peaks daily. See the Operator economics tab.</p>}
             </div>
           ))}
 
