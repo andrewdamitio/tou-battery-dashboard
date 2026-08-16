@@ -149,6 +149,11 @@ export default function Dashboard() {
     [drEnabled, plan.st, plan.cpp]
   );
 
+  const anyBaselineEligible = useMemo(
+    () => DR_PROGRAMS.some((p) => p.basis === "baseline" && (!p.st || p.st.includes(plan.st))),
+    [plan.st]
+  );
+
   // CPP is bill avoidance, not a third-party payment, so it's folded into
   // TOU bill savings (annualArbitrage's `usd`) rather than the DR-revenue
   // stack that PTR/ELRP/PJM/wholesale are counted in.
@@ -772,16 +777,18 @@ export default function Dashboard() {
               with or without a battery, so it isn't value the battery created.
             </Note></div>
 
-            <div className="mb-4"><Note tone="amber">
-              <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
-              ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
-              recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
-              "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
-              days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
-              a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
-              is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
-              there's no baseline to protect and they stack cleanly with daily shaving.
-            </Note></div>
+            {anyBaselineEligible && (
+              <div className="mb-4"><Note tone="amber">
+                <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
+                ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
+                recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
+                "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
+                days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
+                a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
+                is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
+                there's no baseline to protect and they stack cleanly with daily shaving.
+              </Note></div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner, incl. CPP" />
