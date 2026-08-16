@@ -491,7 +491,7 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
-              <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
+              <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={loadInputMode === "appliances" ? `always-on ${baselineKw(sq).toFixed(2)} kW` : undefined} />
               <Note>
                 Plugged into a wall outlet, the unit backfeeds the home's shared wiring the same way balcony solar does —
                 power injected anywhere behind the meter offsets demand anywhere else on that panel, not just what's on the
