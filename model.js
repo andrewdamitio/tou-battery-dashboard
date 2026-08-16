@@ -489,7 +489,7 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn }) {
+export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
       plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays,
@@ -497,16 +497,35 @@ export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides,
       hwCostFn: () => bat.c * (hwPct / 100),
     });
     const cost = bat.c * (hwPct / 100);
-    const flows = [-cost, ...proj.map((r) => r.arbUSD + r.drUSD - (r.replaceCost || 0))];
-    const y1 = proj[0] || { arbUSD: 0, drUSD: 0 };
     const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays });
+
+    let flows, yr1;
+    if (opTerms) {
+      // Same cash flows as the configured offer on Unit economics -- the
+      // operator only ever captures a subscription fee or a split of
+      // savings, never the full arbitrage + DR value outright. Reusing
+      // operatorEconomics directly guarantees this never drifts from what
+      // the sticky header shows for the currently selected unit.
+      const deemedSpreadC = Math.round((arb1.usd / Math.max(1, arb1.kwh)) * 100);
+      const op = operatorEconomics({
+        assetRows: proj, bat, hwPct, cac: opTerms.cac, svcMo: opTerms.svcMo, churn: opTerms.churn,
+        bizModel: opTerms.bizModel, subFee: opTerms.subFee, splitPct: opTerms.splitPct, upfront: opTerms.upfront,
+        planFixed: plan.fixed, discount, deemedSpreadC,
+      });
+      flows = op.opFlows;
+      yr1 = flows[1] ?? 0;
+    } else {
+      flows = [-cost, ...proj.map((r) => r.arbUSD + r.drUSD - (r.replaceCost || 0))];
+      const y1 = proj[0] || { arbUSD: 0, drUSD: 0 };
+      yr1 = y1.arbUSD + y1.drUSD;
+    }
 
     return {
       bat, cost,
       npv: npv(discount / 100, flows),
       irr: irr(flows),
       payback: paybackYear(flows),
-      yr1: y1.arbUSD + y1.drUSD,
+      yr1,
       cyclesYr: arb1.cycles,
       eolYear: proj.findIndex((r) => r.replaced) + 1 || null,
       binding: arb1.bindingConstraint,

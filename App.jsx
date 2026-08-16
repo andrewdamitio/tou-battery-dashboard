@@ -244,6 +244,7 @@ export default function Dashboard() {
     const opRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
       hwPct, drFn: mkDrFn(drEnabled),
+      opTerms: { cac, svcMo, churn, bizModel, subFee, splitPct, upfront },
     });
     const hoById = Object.fromEntries(hoRank.map((r) => [r.bat.id, r]));
 
@@ -489,10 +490,11 @@ export default function Dashboard() {
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
                 Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household,
-                and this connection mode, computed two ways at once: a <strong>homeowner</strong> paying full retail and
-                capturing only CPP avoidance, and an <strong>operator</strong> paying {hwPct}% of retail and capturing the DR
-                stack enabled on the DR stack tab. Sorted by operator NPV; a homeowner's own top pick is flagged separately when
-                it differs.
+                and this connection mode, computed two ways at once: a <strong>homeowner</strong> buying outright at full retail
+                and keeping everything the battery earns (TOU savings plus CPP avoidance), and an <strong>operator</strong>{" "}
+                paying {hwPct}% of retail and running the exact offer configured above — same subscription fee or split,
+                servicing cost, and churn as the sticky header — not a hypothetical where the operator keeps the full arbitrage
+                and DR value. Sorted by operator NPV; a homeowner's own top pick is flagged separately when it differs.
               </p>
 
               {ranking && (() => {
