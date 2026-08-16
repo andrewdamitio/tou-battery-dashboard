@@ -131,6 +131,10 @@ export default function Dashboard() {
   useEffect(() => { if (plan.ev) setCollapsed((p) => ({ ...p, [EV_CAT]: false })); }, [plan.ev, EV_CAT]);
   const evLoad = (counts.e1 || 0) + (counts.e2 || 0);
 
+  // A manually-set deemed spread from one tariff has no business surviving a
+  // switch to a different one — re-derive from the new plan until touched again.
+  useEffect(() => { setDeemedSpread(null); }, [planId]);
+
   // Charging schedule, not charger size, decides whether an EV is worth anything
   // to a battery. A timer that already charges off-peak leaves nothing to shift.
   const applianceOverrides = useMemo(() => (
