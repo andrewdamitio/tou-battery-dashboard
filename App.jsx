@@ -153,11 +153,6 @@ export default function Dashboard() {
     [drEnabled, plan.st, plan.cpp]
   );
 
-  const anyBaselineEligible = useMemo(
-    () => DR_PROGRAMS.some((p) => p.basis === "baseline" && (!p.st || p.st.includes(plan.st))),
-    [plan.st]
-  );
-
   // CPP is bill avoidance, not a third-party payment, so it's folded into
   // TOU bill savings (annualArbitrage's `usd`) rather than the DR-revenue
   // stack that PTR/ELRP/PJM/wholesale are counted in. Customer bill and
@@ -788,19 +783,6 @@ export default function Dashboard() {
               with or without a battery, so it isn't value the battery created.
             </Note></div>
 
-            {anyBaselineEligible && (
-              <div className="mb-4"><Note tone="amber">
-                <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
-                ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
-                recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
-                "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
-                days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
-                a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
-                is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
-                there's no baseline to protect and they stack cleanly with daily shaving.
-              </Note></div>
-            )}
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <Metric label="TOU savings" value={fm(opArb.usd)} sub="to the homeowner, incl. CPP" />
               <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
@@ -838,10 +820,12 @@ export default function Dashboard() {
                       {isCpp && cppActive && (
                         <p className="text-xs text-zinc-400 mt-1">Counted in TOU savings above, not DR revenue — it's a rate feature, not a third-party payment.</p>
                       )}
-                      {item && item.eroded > 0 && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          Would be {fm(item.gross)}/yr if this battery idled to protect its baseline — but it always shaves daily
-                          (see Dispatch strategy below), so the full amount is forfeited to erosion.
+                      {p.basis === "baseline" && ok && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 leading-relaxed">
+                          Nothing pays you to idle — this pays for measured reduction against a rolling similar-day baseline built
+                          from your own recent non-event days, and shaving daily drags that baseline down within about two weeks.
+                          This battery always shaves (see Dispatch strategy below), so that reference stays low and the program is
+                          shown at what it's actually worth under daily use{item && item.eroded > 0 ? ` — ${fm(item.gross)}/yr forfeited to erosion` : ", which is $0"}.
                         </p>
                       )}
                       {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
