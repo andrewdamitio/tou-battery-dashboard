@@ -81,6 +81,7 @@ export default function Dashboard() {
   const [chartMonth, setChartMonth] = useState(6);
 
   // --- DR inputs
+  const [preserve, setPreserve] = useState(0);
   const [dispatchSuccess, setDispatchSuccess] = useState(95);
   const [drEnabled, setDrEnabled] = useState({ cpp: true, elrp: false, ptr: false, cpk: false, whl: false });
   const [drOverrides, setDrOverrides] = useState({ cpk: 40, whl: 0 });
@@ -155,10 +156,9 @@ export default function Dashboard() {
   );
   const nonEventDays = Math.max(0, 365 - eventDays);
 
-  // Baseline preservation isn't a user dial: it's auto-set to whatever
-  // maximizes combined revenue for the current plan/programs, computed by
-  // sweeping the tradeoff below (`frontier`). With no baseline-basis program
-  // active there's nothing to preserve for, so it's pinned to 0 (shave daily).
+  // `preserve` is the user's manual dial. `frontier`/`bestPreserve` still
+  // sweep the same tradeoff to surface a revenue-maximizing suggestion next
+  // to the slider, but no longer drive the number itself.
   const frontier = useMemo(() => {
     const out = [];
     for (let p = 0; p <= 100; p += 5) {
@@ -170,7 +170,7 @@ export default function Dashboard() {
   }, [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const bestPreserve = useMemo(() => frontier.reduce((b, r) => (r.total > b.total ? r : b), frontier[0]), [frontier]);
-  const effPreserve = baselineActive ? bestPreserve.preserve : 0;
+  const effPreserve = baselineActive ? preserve : 0;
   const idleDays = baselineActive ? Math.round((nonEventDays * effPreserve) / 100) : 0;
 
   const arb = useMemo(
@@ -741,18 +741,20 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
+              <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} disabled={!baselineActive} fmt={(v) => v + "%"} hint={!baselineActive ? "no baseline program active" : preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
               <Note tone={baselineActive ? "zinc" : "amber"}>
                 {baselineActive ? (
-                  <>Baseline preservation isn't a manual dial: the model auto-selects <strong>{effPreserve}%</strong> — whatever
-                  share of non-event days maximizes combined revenue for this exact configuration (see the numbers below) —
-                  rather than asking you to guess it. At {effPreserve}%, that's roughly <strong>{idleDays} idle days</strong>{" "}
-                  out of ~{nonEventDays} non-event days a year; the battery still shaves all {eventDays} declared event days
-                  regardless, since those are what actually get paid. Nothing compensates the idling itself — it only protects
-                  the size of the event-day payment, and it's only worth doing when a baseline-basis program's rate is rich
-                  enough to outweigh the TOU savings forfeited on the idle days.</>
+                  <>Share of non-event days the battery sits idle instead of shaving the peak, to keep the baseline that
+                  Peak Time Rebates / ELRP measure against from eroding. At {preserve}%, that's roughly{" "}
+                  <strong>{idleDays} idle days</strong> out of ~{nonEventDays} non-event days a year — the battery still shaves
+                  all {eventDays} declared event days regardless, since those are what actually get paid. Nothing compensates
+                  the idling itself — it only protects the size of the event-day payment. Combined revenue for this exact
+                  configuration is maximized at <strong>{bestPreserve.preserve}%</strong> ({fm(bestPreserve.total)}/yr) — that's
+                  a suggestion, not a requirement; move the slider to see how far off any other value leaves you.</>
                 ) : (
-                  <>No baseline-basis program (Peak Time Rebates, ELRP) is enabled and eligible on {plan.n} — there's nothing to
-                  preserve a baseline for, so this is pinned at 0% (shave every day). Check a box in Programs above to activate it.</>
+                  <>Grayed out: no baseline-basis program (Peak Time Rebates, ELRP) is both enabled and eligible on {plan.n}{" "}
+                  right now — check a box in Programs above to make this slider do anything. With none active, idling would
+                  only forfeit TOU savings for zero DR upside, so it's held at 0% regardless of where the handle sits.</>
                 )}
               </Note>
               <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
@@ -783,9 +785,9 @@ export default function Dashboard() {
               <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
             </div>
             <p className="text-xs text-zinc-400 mt-1.5">
-              Both shift live as you move dispatch success or toggle programs above: DR revenue scales directly with dispatch
-              success, while TOU arbitrage only drops when auto-selected baseline preservation idles a day to protect a richer
-              DR payment. {baselineActive && effPreserve === 0 && "At 0% preservation, nothing is currently being traded away."}
+              Both shift live as you move either slider above: DR revenue scales directly with dispatch success, while TOU
+              arbitrage only drops when baseline preservation idles a day to protect a richer DR payment.{" "}
+              {baselineActive && effPreserve === 0 && "At 0% preservation, nothing is currently being traded away."}
             </p>
           </div>
 
