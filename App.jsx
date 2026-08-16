@@ -227,8 +227,8 @@ export default function Dashboard() {
     return out;
   }, [arb, chartMonth, plan, bat]);
 
-  const runRanking = () => {
-    const opMode = rankBuyer === "operator";
+  const runRanking = (buyer = rankBuyer) => {
+    const opMode = buyer === "operator";
     setRanking(rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides,
       years: LIFE, preserve, eventDays, discount,
@@ -471,10 +471,10 @@ export default function Dashboard() {
                 <span className="text-sm text-zinc-500 dark:text-zinc-400">Rank all {BATTERIES.length} for a</span>
                 <div className="flex gap-0.5 bg-white dark:bg-zinc-900 p-0.5 rounded-md">
                   {[["homeowner", "homeowner buying retail"], ["operator", "operator at volume"]].map(([id, lbl]) => (
-                    <button key={id} onClick={() => { setRankBuyer(id); setRanking(null); }} className={`px-2.5 py-1 text-xs font-medium rounded ${rankBuyer === id ? "bg-blue-500 text-white" : "text-zinc-500"}`}>{lbl}</button>
+                    <button key={id} onClick={() => { setRankBuyer(id); if (ranking) runRanking(id); }} className={`px-2.5 py-1 text-xs font-medium rounded ${rankBuyer === id ? "bg-blue-500 text-white" : "text-zinc-500"}`}>{lbl}</button>
                   ))}
                 </div>
-                <button onClick={runRanking} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
+                <button onClick={() => runRanking()} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
                 Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household, and
