@@ -700,27 +700,20 @@ export default function Dashboard() {
               operator, no revenue split, no DR programs — this is what that looks like year by year, with degradation and any
               mid-life replacement (also at full retail) included.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="text-zinc-400 text-left">
-                  <th className="py-1 pr-2 font-medium">Year</th>
-                  <th className="py-1 px-2 font-medium text-right">Cash flow</th>
-                  <th className="py-1 pl-2 font-medium text-right">Cumulative</th>
-                </tr></thead>
-                <tbody>
-                  {custCashFlow.rows.map((r) => (
-                    <tr key={r.year} className="border-t border-zinc-200 dark:border-zinc-700">
-                      <td className="py-1.5 pr-2 text-zinc-500 dark:text-zinc-400">
-                        {r.year}
-                        {r.replaced && <span className="ml-1.5 text-[10px] text-red-500">replaced</span>}
-                      </td>
-                      <td className={`py-1.5 px-2 text-right font-data ${r.flow < 0 ? "text-red-500" : "text-zinc-500"}`}>{fp(r.flow)}</td>
-                      <td className={`py-1.5 pl-2 text-right font-data font-medium ${r.cum > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.cum)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={custCashFlow.rows.map((r) => ({ year: r.year, Cumulative: Math.round(r.cum) }))} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#888" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => fm(v)} />
+                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
+                <ReferenceLine y={0} stroke="#999" strokeDasharray="5 5" />
+                <Line type="monotone" dataKey="Cumulative" stroke="#16A34A" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+            {custCashFlow.rows.some((r) => r.replaced) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                {custCashFlow.rows.filter((r) => r.replaced).map((r) => r.year).join(", ")}: mid-life replacement booked at full retail.
+              </p>
+            )}
             <p className="text-xs text-zinc-400 mt-2">
               {custCashFlow.net > 0
                 ? `Net positive over ${LIFE} years: ${fm(custCashFlow.net)}, payback in ${custCashFlow.payback === Infinity ? "never" : custCashFlow.payback.toFixed(1) + " yrs"}.`
