@@ -381,15 +381,15 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 
 export const DR_PROGRAMS = [
   { id: "elrp", n: "CA ELRP (aggregator)", basis: "baseline", rate: 2.00, events: 12, hoursPerEvent: 3, st: ["CA"],
-    note: "$2/kWh at the meter during CAISO emergencies, May–Oct, ≤60 hrs/yr. Aggregator pathway (Group A.4); event window cut from 5 to 3 hrs by D.23-12-005. Live through 2027." },
+    note: "California's emergency grid-response program. Pays $2/kWh for verified load reduction during CAISO emergencies, May–Oct, up to 60 hrs/yr. Requires an aggregator to enroll a fleet. Live through 2027." },
   { id: "ptr", n: "Peak Time Rebates", basis: "baseline", rate: 1.10, events: 12, hoursPerEvent: 3, st: ["OR", "MD", "MI", "DE", "IL"],
-    note: "PGE OR / BGE MD / Consumers MI / Delmarva DE / ComEd IL. $1.00–$1.25/kWh vs a 10-similar-day weather-adjusted baseline. Meter-based, device-agnostic." },
+    note: "A utility credit for using less than your own recent average during announced peak events — $1.00–$1.25/kWh, meter-based, no specific hardware required. Live in OR, MD, MI, DE, and IL." },
   { id: "cpp", n: "CPP / CPP overlay", basis: "avoidance", rate: null, events: null, hoursPerEvent: null, st: null,
-    note: "50–80¢/kWh adder during called events; the battery avoids it by serving load. Bill avoidance, not a rebate, so no baseline to erode. Rate and event count come from the selected tariff." },
+    note: "An overlay on a TOU rate: the price jumps 50–80¢/kWh on a handful of declared days a year, and the battery avoids paying it by covering the load through the event. Bill avoidance, not a rebate — nothing to erode. Rate and event count depend on the selected tariff." },
   { id: "cpk", n: "PJM capacity tag (5CP)", basis: "indirect", rate: null, events: 5, hoursPerEvent: 1, st: ["IL", "MD", "VA", "DE"],
-    note: "Capacity cleared at the FERC cap for 2026/27 and 2027/28. Residential value is embedded in supply rates and generally needs a passthrough tariff (e.g. ComEd Hourly / Rate BESH) to reach the customer." },
+    note: "Your capacity charge is set by usage during a handful of the grid's highest-demand hours each summer. Avoiding those hours lowers that charge — but only on rate plans that pass capacity costs through directly (e.g. ComEd Hourly), so most residential customers can't actually capture it. Live in IL, MD, VA, and DE." },
   { id: "whl", n: "Wholesale aggregation (Order 2222)", basis: "indirect", rate: null, events: null, hoursPerEvent: null, st: ["CA", "NY"],
-    note: "CAISO live Nov 2024, NYISO Apr 2024; PJM delayed to Feb 2028, MISO 2027–29. Load-reduction-only DERs join as Proxy Demand Resources through aggregators. Revenue share is negotiated, not published." },
+    note: "Lets a fleet of small batteries bid into wholesale electricity markets as one combined resource, via an aggregator — something only large power plants could do before. Live in CAISO and NYISO; other grid operators are still years out. Payment terms are negotiated case by case, not published." },
 ];
 
 export const HARDWIRED_ONLY = [
