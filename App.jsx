@@ -40,11 +40,11 @@ function Row({ label, value, hint }) {
   );
 }
 
-function Slider({ label, value, onChange, min, max, step = 1, fmt = (v) => v, hint }) {
+function Slider({ label, value, onChange, min, max, step = 1, fmt = (v) => v, hint, disabled = false }) {
   return (
-    <div className="flex items-center gap-3 text-sm flex-wrap">
+    <div className={`flex items-center gap-3 text-sm flex-wrap ${disabled ? "opacity-50" : ""}`}>
       <span className="text-zinc-500 dark:text-zinc-400 min-w-[150px]">{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(+e.target.value)} className="flex-1 min-w-[120px] max-w-[200px]" />
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={(e) => onChange(+e.target.value)} className="flex-1 min-w-[120px] max-w-[200px]" />
       <span className="font-medium min-w-[70px]">{fmt(value)}</span>
       {hint && <span className="text-xs text-zinc-400">{hint}</span>}
     </div>
@@ -142,21 +142,34 @@ export default function Dashboard() {
     return e;
   }, [drEnabled, plan.st]);
 
+  // Idling only ever pays off if a baseline-basis program (Peak Time Rebates,
+  // ELRP) is actually enabled and eligible on this plan — eventDays > 0 is
+  // exactly that condition. With no such program active, forcing preserve to
+  // 0 stops the slider from silently destroying TOU revenue for no DR upside.
+  const baselineActive = eventDays > 0;
+  const effPreserve = baselineActive ? preserve : 0;
+  const anyDrActive = useMemo(
+    () => DR_PROGRAMS.some((p) => drEnabled[p.id] && (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp)),
+    [drEnabled, plan.st, plan.cpp]
+  );
+  const nonEventDays = Math.max(0, 365 - eventDays);
+  const idleDays = baselineActive ? Math.round((nonEventDays * preserve) / 100) : 0;
+
   const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: preserve / 100, eventDays }),
-    [plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays]
+    () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: effPreserve / 100, eventDays }),
+    [plan, bat, counts, sq, baselineFrac, applianceOverrides, effPreserve, eventDays]
   );
 
   const dr = useMemo(
-    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS }),
-    [plan, bat, arb, drEnabled, preserve, dispatchSuccess, cppEvents, drOverrides]
+    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS }),
+    [plan, bat, arb, drEnabled, effPreserve, dispatchSuccess, cppEvents, drOverrides]
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve: preserve / 100, eventDays,
-    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
+    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve: effPreserve / 100, eventDays,
+    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, effPreserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
 
@@ -223,11 +236,11 @@ export default function Dashboard() {
     const opMode = rankBuyer === "operator";
     setRanking(rankBatteries({
       plan, batteries: BATTERIES, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides,
-      years: LIFE, preserve: preserve / 100, eventDays, discount,
+      years: LIFE, preserve: effPreserve / 100, eventDays, discount,
       hwPct: opMode ? hwPct : 100,
       drFn: (b, a, capFrac) => drRevenue({
         plan, bat: b, arb: a, enabled: opMode ? drEnabled : { cpp: true },
-        preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100,
+        preserve: effPreserve / 100, dispatchSuccess: dispatchSuccess / 100,
         cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
       }).total,
     }));
@@ -610,6 +623,13 @@ export default function Dashboard() {
       {/* ================================================================= */}
       {tab === "dr" && (
         <div>
+          <div className="mb-4 flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Tariff</span>
+            <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="flex-1 min-w-[220px] p-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800">
+              {PLANS_SORTED.map((p) => <option key={p.id} value={p.id}>{p.custom ? `-- ${p.n} --` : `${p.n} (${p.st})${p.ev ? " [EV req]" : ""}`}</option>)}
+            </select>
+          </div>
+
           <div className="mb-4"><Note>
             <strong>CPP = Critical Peak Pricing.</strong> You enroll in an overlay on top of your normal TOU rate. In exchange
             for a small year-round discount, you agree that on a limited number of days — called the afternoon before, typically
@@ -623,12 +643,14 @@ export default function Dashboard() {
           </Note></div>
 
           <div className="mb-4"><Note tone="amber">
-            <strong>You cannot earn full TOU arbitrage and full meter-based DR from the same battery.</strong> Peak Time Rebates and
-            ELRP pay for measured reduction against a rolling similar-day baseline. A battery that shaves every day suppresses its own
-            baseline within about two weeks, and the payment decays toward zero. Preserving the baseline means idling on non-event days,
-            which forfeits TOU savings. The slider below is that trade, priced.
-            CPP-style overlays are the exception: they're bill avoidance against a published adder, so there's no baseline to erode
-            and they stack cleanly.
+            <strong>Nothing pays you to idle — idling only protects the size of a future payment.</strong> Peak Time Rebates and
+            ELRP pay for measured reduction against a rolling similar-day baseline: a reference usage level built from your own
+            recent non-event days. A battery that shaves every day drags that reference down within about two weeks, so the
+            "reduction" it can show during a real event — and the payment for it — shrinks along with it. Idling on non-event
+            days keeps the reference high, at the direct cost of the TOU savings that day would have earned. It's a trade against
+            a future DR payment, not a revenue source in its own right, and it only matters at all when a baseline-basis program
+            is actually enabled below. CPP-style overlays are the exception: they're bill avoidance against a published adder, so
+            there's no baseline to protect and they stack cleanly with daily shaving.
           </Note></div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -636,50 +658,6 @@ export default function Dashboard() {
             <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
             <Metric label="Forfeited to erosion" value={fm(dr.foregone)} sub="baseline-basis only" positive={dr.foregone > 0 ? false : undefined} />
             <Metric label="Combined" value={fm(arb.usd + dr.total)} positive={arb.usd + dr.total > 0} />
-          </div>
-
-          <div className="mb-6">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch-strategy frontier</p>
-            <ResponsiveContainer width="100%" height={240}>
-              <ComposedChart data={frontier} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                <XAxis dataKey="preserve" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"} label={{ value: "share of non-event days the battery idles to protect its baseline", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
-                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="tou" stackId="s" fill="#16A34A" name="TOU arbitrage" />
-                <Bar dataKey="drv" stackId="s" fill="#185FA5" name="DR revenue" />
-                <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Combined" />
-              </ComposedChart>
-            </ResponsiveContainer>
-            <p className="text-xs text-zinc-400 mt-1.5">
-              On this tariff the combined value is maximized at <strong>{bestPreserve.preserve}% preservation</strong> ({fm(bestPreserve.total)}/yr).
-              {bestPreserve.preserve === 0 && " Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
-            </p>
-          </div>
-
-          <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
-              <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} fmt={(v) => v + "%"} hint={preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
-              <Note>
-                Share of non-event days the battery sits idle instead of shaving the peak, to keep the rolling usage baseline
-                that meter-based DR programs (Peak Time Rebates, ELRP) measure against from eroding. Every idle day is a day of
-                forfeited TOU savings, so this is a real trade, not a free dial. <strong>Default: 0%.</strong> TOU pays on
-                roughly 350 days a year and DR events pay on a dozen or so, so daily shaving wins on nearly every tariff — the
-                frontier chart above already computes the revenue-maximizing value for this exact configuration; only move this
-                slider above 0% if that chart says otherwise.
-              </Note>
-              <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} fmt={(v) => v + "%"} hint="unplugged, moved, or low SoC at call time" />
-              <Note>
-                Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low on
-                charge when the event fires. This is an assumption, not an observed rate: there's no telemetry yet to calibrate
-                it against. Planning ranges by visibility into the fleet: <strong>60–70%</strong> with no location or state-of-charge
-                signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a customer before a call, which is a
-                defensible default for portable units a customer might carry to a campsite; <strong>85–95%</strong> only once
-                real dispatch telemetry exists and low-risk accounts can be targeted. Replace this slider with an observed rate
-                the moment you have one — it's currently set to {dispatchSuccess}%.
-              </Note>
-            </div>
           </div>
 
           <div className="mb-5">
@@ -714,6 +692,65 @@ export default function Dashboard() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch-strategy frontier</p>
+            <ResponsiveContainer width="100%" height={240}>
+              <ComposedChart data={frontier} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                <XAxis dataKey="preserve" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"} label={{ value: "share of non-event days the battery idles to protect its baseline", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="tou" stackId="s" fill="#16A34A" name="TOU arbitrage" />
+                <Bar dataKey="drv" stackId="s" fill="#185FA5" name="DR revenue" />
+                <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Combined" />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-zinc-400 mt-1.5">
+              On this tariff the combined value is maximized at <strong>{bestPreserve.preserve}% preservation</strong> ({fm(bestPreserve.total)}/yr).
+              {bestPreserve.preserve === 0 && " Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
+            </p>
+          </div>
+
+          <div className="mb-5">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
+            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
+              <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} disabled={!baselineActive} fmt={(v) => v + "%"} hint={!baselineActive ? "no baseline program active" : preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
+              <Note tone={baselineActive ? "zinc" : "amber"}>
+                {baselineActive ? (
+                  <>Share of non-event days the battery sits idle instead of shaving the peak, to keep the baseline that
+                  Peak Time Rebates / ELRP measure against from eroding. At {preserve}%, that's roughly{" "}
+                  <strong>{idleDays} idle days</strong> out of ~{nonEventDays} non-event days a year — the battery still shaves
+                  all {eventDays} declared event days regardless, since those are what actually get paid. Every idle day is a
+                  day of forfeited TOU savings, not a paid one — nothing compensates the idling itself; it only protects the
+                  size of the event-day payment. <strong>Default: 0%.</strong> TOU pays on ~350 days a year and events pay on
+                  roughly a dozen, so daily shaving wins on nearly every tariff — the frontier chart above already computes
+                  the revenue-maximizing value for this exact configuration.</>
+                ) : (
+                  <>Grayed out: no baseline-basis program (Peak Time Rebates, ELRP) is both enabled and eligible on {plan.n}{" "}
+                  right now — check a box in Programs above to make this slider do anything. With none active, idling would
+                  only forfeit TOU savings for zero DR upside, so it's held at 0% regardless of where the handle sits.</>
+                )}
+              </Note>
+              <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
+              <Note tone={anyDrActive ? "zinc" : "amber"}>
+                {anyDrActive ? (
+                  <>Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low
+                  on charge when the event fires. {eventDays > 0 && <>Of the <strong>{eventDays} baseline-program event
+                  days/yr</strong>, about <strong>{Math.round((eventDays * dispatchSuccess) / 100)}</strong> are successfully
+                  dispatched at {dispatchSuccess}%. </>}This is an assumption, not an observed rate: there's no telemetry yet
+                  to calibrate it against. Planning ranges by visibility into the fleet: <strong>60–70%</strong> with no
+                  location or state-of-charge signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a
+                  customer before a call, a defensible default for portable units a customer might carry to a campsite;
+                  <strong> 85–95%</strong> only once real dispatch telemetry exists and low-risk accounts can be targeted.
+                  Replace this slider with an observed rate the moment you have one.</>
+                ) : (
+                  <>Grayed out: no DR program is enabled and eligible on {plan.n} right now — check a box in Programs above
+                  to make this slider do anything.</>
+                )}
+              </Note>
             </div>
           </div>
 
