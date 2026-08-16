@@ -738,44 +738,14 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="mb-6">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch-strategy frontier</p>
-            {baselineActive ? (
-              <>
-                <ResponsiveContainer width="100%" height={240}>
-                  <ComposedChart data={frontier} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                    <XAxis dataKey="preserve" type="number" domain={[0, 100]} ticks={[0, 20, 40, 60, 80, 100]} tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"} label={{ value: "share of non-event days the battery idles to protect its baseline", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
-                    <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
-                    <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} labelFormatter={(v) => v + "% preservation"} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Area type="monotone" dataKey="tou" stackId="s" stroke="#16A34A" strokeWidth={2} fill="#16A34A" fillOpacity={0.15} name="TOU arbitrage" />
-                    <Area type="monotone" dataKey="drv" stackId="s" stroke="#185FA5" strokeWidth={2} fill="#185FA5" fillOpacity={0.15} name="DR revenue" />
-                    <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={false} name="Combined" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-zinc-400 mt-1.5">
-                  This is what the model actually uses: combined value is maximized at <strong>{effPreserve}% preservation</strong>{" "}
-                  ({fm(bestPreserve.total)}/yr, ~{idleDays} idle days/yr), so that's the number feeding every other tab — not a
-                  manual dial. {effPreserve === 0 && "Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
-                </p>
-              </>
-            ) : (
-              <Note>
-                No baseline-basis program (Peak Time Rebates, ELRP) is enabled and eligible on {plan.n} right now, so there's
-                no preservation trade to chart — CPP-style programs don't erode with daily shaving, and TOU arbitrage alone is
-                trivially maximized at 0% preservation. Enable a baseline-basis program in Programs above to see the frontier.
-              </Note>
-            )}
-          </div>
-
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
               <Note tone={baselineActive ? "zinc" : "amber"}>
                 {baselineActive ? (
                   <>Baseline preservation isn't a manual dial: the model auto-selects <strong>{effPreserve}%</strong> — whatever
-                  share of non-event days maximizes combined revenue for this exact configuration (see the frontier chart above)
-                  — rather than asking you to guess it. At {effPreserve}%, that's roughly <strong>{idleDays} idle days</strong>{" "}
+                  share of non-event days maximizes combined revenue for this exact configuration (see the numbers below) —
+                  rather than asking you to guess it. At {effPreserve}%, that's roughly <strong>{idleDays} idle days</strong>{" "}
                   out of ~{nonEventDays} non-event days a year; the battery still shaves all {eventDays} declared event days
                   regardless, since those are what actually get paid. Nothing compensates the idling itself — it only protects
                   the size of the event-day payment, and it's only worth doing when a baseline-basis program's rate is rich
@@ -804,6 +774,19 @@ export default function Dashboard() {
                 )}
               </Note>
             </div>
+          </div>
+
+          <div className="mb-6">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch outcome</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="TOU arbitrage" value={fm(arb.usd)} sub="to the homeowner, at current settings" positive={arb.usd > 0} />
+              <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
+            </div>
+            <p className="text-xs text-zinc-400 mt-1.5">
+              Both shift live as you move dispatch success or toggle programs above: DR revenue scales directly with dispatch
+              success, while TOU arbitrage only drops when auto-selected baseline preservation idles a day to protect a richer
+              DR payment. {baselineActive && effPreserve === 0 && "At 0% preservation, nothing is currently being traded away."}
+            </p>
           </div>
 
           {plan.cpp && (
