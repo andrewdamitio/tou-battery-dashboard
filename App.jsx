@@ -81,8 +81,7 @@ export default function Dashboard() {
   const [chartMonth, setChartMonth] = useState(6);
 
   // --- DR inputs
-  const [preserve, setPreserve] = useState(0);
-  const [dispatchSuccess, setDispatchSuccess] = useState(80);
+  const [dispatchSuccess, setDispatchSuccess] = useState(95);
   const [drEnabled, setDrEnabled] = useState({ cpp: true, elrp: false, ptr: false, cpk: false, whl: false });
   const [drOverrides, setDrOverrides] = useState({ cpk: 40, whl: 0 });
   const [cppEvents, setCppEvents] = useState(null);
@@ -149,18 +148,30 @@ export default function Dashboard() {
     return e;
   }, [drEnabled, plan.st]);
 
-  // Idling only ever pays off if a baseline-basis program (Peak Time Rebates,
-  // ELRP) is actually enabled and eligible on this plan — eventDays > 0 is
-  // exactly that condition. With no such program active, forcing preserve to
-  // 0 stops the slider from silently destroying TOU revenue for no DR upside.
   const baselineActive = eventDays > 0;
-  const effPreserve = baselineActive ? preserve : 0;
   const anyDrActive = useMemo(
     () => DR_PROGRAMS.some((p) => drEnabled[p.id] && (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp)),
     [drEnabled, plan.st, plan.cpp]
   );
   const nonEventDays = Math.max(0, 365 - eventDays);
-  const idleDays = baselineActive ? Math.round((nonEventDays * preserve) / 100) : 0;
+
+  // Baseline preservation isn't a user dial: it's auto-set to whatever
+  // maximizes combined revenue for the current plan/programs, computed by
+  // sweeping the tradeoff below (`frontier`). With no baseline-basis program
+  // active there's nothing to preserve for, so it's pinned to 0 (shave daily).
+  const frontier = useMemo(() => {
+    const out = [];
+    for (let p = 0; p <= 100; p += 5) {
+      const a = annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: p / 100, eventDays });
+      const d = drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: p / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS });
+      out.push({ preserve: p, tou: Math.round(a.usd), drv: Math.round(d.total), total: Math.round(a.usd + d.total) });
+    }
+    return out;
+  }, [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+
+  const bestPreserve = useMemo(() => frontier.reduce((b, r) => (r.total > b.total ? r : b), frontier[0]), [frontier]);
+  const effPreserve = baselineActive ? bestPreserve.preserve : 0;
+  const idleDays = baselineActive ? Math.round((nonEventDays * effPreserve) / 100) : 0;
 
   const arb = useMemo(
     () => annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: effPreserve / 100, eventDays }),
@@ -198,18 +209,6 @@ export default function Dashboard() {
   }), [op.opFlows, perMonth, rampMonths, discount, recoveryRate, churn, op.hw, refurb, deliverableKw, dispatchSuccess, minAggKw]);
 
   const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, baselineFrac: baselineFrac / 100, applianceOverrides }), [plan, arb, counts, sq, bat, baselineFrac, applianceOverrides]);
-
-  const frontier = useMemo(() => {
-    const out = [];
-    for (let p = 0; p <= 100; p += 5) {
-      const a = annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: p / 100, eventDays });
-      const d = drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: p / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS });
-      out.push({ preserve: p, tou: Math.round(a.usd), drv: Math.round(d.total), total: Math.round(a.usd + d.total) });
-    }
-    return out;
-  }, [plan, bat, counts, sq, baselineFrac, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
-
-  const bestPreserve = useMemo(() => frontier.reduce((b, r) => (r.total > b.total ? r : b), frontier[0]), [frontier]);
 
   // 24-hour dispatch series for the selected month
   const daySeries = useMemo(() => {
@@ -729,7 +728,7 @@ export default function Dashboard() {
                     <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
                     {item && item.eroded > 0 && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        {fm(item.gross)}/yr at full baseline preservation; {fm(item.eroded)} of that is forfeited at {preserve}% preservation.
+                        {fm(item.gross)}/yr at full baseline preservation; {fm(item.eroded)} of that is forfeited at {effPreserve}% preservation.
                       </p>
                     )}
                     {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
@@ -755,8 +754,9 @@ export default function Dashboard() {
                   </ComposedChart>
                 </ResponsiveContainer>
                 <p className="text-xs text-zinc-400 mt-1.5">
-                  On this tariff the combined value is maximized at <strong>{bestPreserve.preserve}% preservation</strong> ({fm(bestPreserve.total)}/yr).
-                  {bestPreserve.preserve === 0 && " Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
+                  This is what the model actually uses: combined value is maximized at <strong>{effPreserve}% preservation</strong>{" "}
+                  ({fm(bestPreserve.total)}/yr, ~{idleDays} idle days/yr), so that's the number feeding every other tab — not a
+                  manual dial. {effPreserve === 0 && "Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
                 </p>
               </>
             ) : (
@@ -771,21 +771,18 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch strategy</p>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
-              <Slider label="Baseline preservation" value={preserve} onChange={setPreserve} min={0} max={100} step={5} disabled={!baselineActive} fmt={(v) => v + "%"} hint={!baselineActive ? "no baseline program active" : preserve === 0 ? "shave every peak day" : preserve === 100 ? "event days only" : ""} />
               <Note tone={baselineActive ? "zinc" : "amber"}>
                 {baselineActive ? (
-                  <>Share of non-event days the battery sits idle instead of shaving the peak, to keep the baseline that
-                  Peak Time Rebates / ELRP measure against from eroding. At {preserve}%, that's roughly{" "}
-                  <strong>{idleDays} idle days</strong> out of ~{nonEventDays} non-event days a year — the battery still shaves
-                  all {eventDays} declared event days regardless, since those are what actually get paid. Every idle day is a
-                  day of forfeited TOU savings, not a paid one — nothing compensates the idling itself; it only protects the
-                  size of the event-day payment. <strong>Default: 0%.</strong> TOU pays on ~350 days a year and events pay on
-                  roughly a dozen, so daily shaving wins on nearly every tariff — the frontier chart above already computes
-                  the revenue-maximizing value for this exact configuration.</>
+                  <>Baseline preservation isn't a manual dial: the model auto-selects <strong>{effPreserve}%</strong> — whatever
+                  share of non-event days maximizes combined revenue for this exact configuration (see the frontier chart above)
+                  — rather than asking you to guess it. At {effPreserve}%, that's roughly <strong>{idleDays} idle days</strong>{" "}
+                  out of ~{nonEventDays} non-event days a year; the battery still shaves all {eventDays} declared event days
+                  regardless, since those are what actually get paid. Nothing compensates the idling itself — it only protects
+                  the size of the event-day payment, and it's only worth doing when a baseline-basis program's rate is rich
+                  enough to outweigh the TOU savings forfeited on the idle days.</>
                 ) : (
-                  <>Grayed out: no baseline-basis program (Peak Time Rebates, ELRP) is both enabled and eligible on {plan.n}{" "}
-                  right now — check a box in Programs above to make this slider do anything. With none active, idling would
-                  only forfeit TOU savings for zero DR upside, so it's held at 0% regardless of where the handle sits.</>
+                  <>No baseline-basis program (Peak Time Rebates, ELRP) is enabled and eligible on {plan.n} — there's nothing to
+                  preserve a baseline for, so this is pinned at 0% (shave every day). Check a box in Programs above to activate it.</>
                 )}
               </Note>
               <Slider label="Dispatch success" value={dispatchSuccess} onChange={setDispatchSuccess} min={40} max={100} step={5} disabled={!anyDrActive} fmt={(v) => v + "%"} hint={anyDrActive ? "unplugged, moved, or low SoC at call time" : "no DR program active"} />
@@ -794,12 +791,13 @@ export default function Dashboard() {
                   <>Share of DR calls the fleet actually delivers on — the rest are unplugged, physically moved, or too low
                   on charge when the event fires. {eventDays > 0 && <>Of the <strong>{eventDays} baseline-program event
                   days/yr</strong>, about <strong>{Math.round((eventDays * dispatchSuccess) / 100)}</strong> are successfully
-                  dispatched at {dispatchSuccess}%. </>}This is an assumption, not an observed rate: there's no telemetry yet
-                  to calibrate it against. Planning ranges by visibility into the fleet: <strong>60–70%</strong> with no
-                  location or state-of-charge signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a
-                  customer before a call, a defensible default for portable units a customer might carry to a campsite;
-                  <strong> 85–95%</strong> only once real dispatch telemetry exists and low-risk accounts can be targeted.
-                  Replace this slider with an observed rate the moment you have one.</>
+                  dispatched at {dispatchSuccess}%. </>}Telemetry is this fleet's real edge — knowing state of charge and
+                  location lets you target low-risk accounts and route around units that won't deliver — but it doesn't stop a
+                  customer from unplugging the unit or taking it camping, so treat 100% as unrealistic even with full
+                  visibility. Planning ranges by fleet visibility: <strong>60–70%</strong> with no location or
+                  state-of-charge signal at all (pure trust); <strong>70–85%</strong> once the app can nudge a customer before
+                  a call; <strong>85–95%</strong> with real dispatch telemetry and low-risk-account targeting — the top of
+                  that range, 95%, is the default here. Replace this slider with an observed rate the moment you have one.</>
                 ) : (
                   <>Grayed out: no DR program is enabled and eligible on {plan.n} right now — check a box in Programs above
                   to make this slider do anything.</>
