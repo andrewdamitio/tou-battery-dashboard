@@ -378,7 +378,7 @@ export function paybackYear(flows) {
 
 export function operatorEconomics({
   assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
-  planFixed, discount, settlement, deemedSpreadC,
+  planFixed, discount, deemedSpreadC,
 }) {
   const hw = bat.c * (hwPct / 100);
   const opFlows = [-(hw + cac) + upfront];
@@ -387,9 +387,10 @@ export function operatorEconomics({
 
   for (const r of assetRows) {
     const surv = Math.pow(1 - churn / 100, r.y);
-    // What the homeowner is billed on, under each settlement basis.
+    // Billed on metered discharge x a published rate -- never a modeled
+    // counterfactual bill the customer has no way to independently verify.
     const deemed = (r.kwh * deemedSpreadC) / 100;
-    const billable = settlement === "deemed" ? deemed : r.arbUSD;
+    const billable = deemed;
 
     let op, ho;
     if (bizModel === "sub") {

@@ -95,8 +95,6 @@ export default function Dashboard() {
   const [splitPct, setSplitPct] = useState(65);
   const [upfront, setUpfront] = useState(0);
   const [discount, setDiscount] = useState(12);
-  const [settlement, setSettlement] = useState("actual");
-  const [deemedSpread, setDeemedSpread] = useState(null);
 
   // --- fleet inputs
   const [perMonth, setPerMonth] = useState(100);
@@ -130,10 +128,6 @@ export default function Dashboard() {
   const EV_CAT = APPLIANCE_CATS.findIndex((c) => c.t === "EV charging");
   useEffect(() => { if (plan.ev) setCollapsed((p) => ({ ...p, [EV_CAT]: false })); }, [plan.ev, EV_CAT]);
   const evLoad = (counts.e1 || 0) + (counts.e2 || 0);
-
-  // A manually-set deemed spread from one tariff has no business surviving a
-  // switch to a different one — re-derive from the new plan until touched again.
-  useEffect(() => { setDeemedSpread(null); }, [planId]);
 
   // Charging schedule, not charger size, decides whether an EV is worth anything
   // to a battery. A timer that already charges off-peak leaves nothing to shift.
@@ -180,12 +174,16 @@ export default function Dashboard() {
     hwCostFn: () => bat.c,
   }), [plan, bat, counts, sq, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
-  const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
+  // Deemed billing rate: the actual whole-year average value per kWh
+  // discharged, rounded to a clean cent — a real weighted blend of every
+  // season and rate period, not a summer-only approximation, and not a
+  // manual dial, since there's no honest reason to move it off this number.
+  const effDeemed = Math.round((arb.usd / Math.max(1, arb.kwh)) * 100);
 
   const op = useMemo(() => operatorEconomics({
     assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
-    planFixed: plan.fixed, discount, settlement, deemedSpreadC: effDeemed,
-  }), [assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, settlement, effDeemed]);
+    planFixed: plan.fixed, discount, deemedSpreadC: effDeemed,
+  }), [assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, effDeemed]);
 
   const deliverableKw = useMemo(() => {
     const m = arb.months[6];
@@ -800,7 +798,7 @@ export default function Dashboard() {
               </div>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
                 {!dealHo
-                  ? `The offer costs the homeowner ${fm(-op.hoYr1)}/yr more than the battery saves them. Lower the fee or split, switch settlement basis, or pick a wider-spread tariff.`
+                  ? `The offer costs the homeowner ${fm(-op.hoYr1)}/yr more than the battery saves them. Lower the fee or split, or pick a wider-spread tariff.`
                   : `Homeowner nets ${fm(op.hoYr1)}/yr; operator NPV ${fm(op.opNPV)} per unit at ${discount}%.`}
               </p>
             </div>
@@ -838,29 +836,19 @@ export default function Dashboard() {
             {bizModel === "split" && (
               <div className="mb-5">
                 <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Settlement basis</p>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  {[["actual", "Modeled bill delta", "Bill the customer a share of the savings the battery actually produced. Correct in principle, unverifiable in practice — you'd have to know the bill they would have had."],
-                    ["deemed", "Deemed formula", "Metered discharge kWh × a published spread. Auditable, disputable only against the tariff sheet, and does not require a counterfactual — but it systematically diverges from what the customer sees on their bill."]].map(([id, t, b]) => (
-                    <button key={id} onClick={() => setSettlement(id)} className={`p-3 rounded-lg border text-xs leading-relaxed text-left ${settlement === id ? "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20" : "border-zinc-200 dark:border-zinc-700"}`}>
-                      <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 mb-1">{t}</div>
-                      <p className="text-zinc-500 dark:text-zinc-400">{b}</p>
-                    </button>
-                  ))}
-                </div>
-                {settlement === "deemed" && (
-                  <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-2">
-                    <Slider label="Deemed spread" value={effDeemed} onChange={setDeemedSpread} min={0} max={80} fmt={(v) => v + "¢/kWh"} hint={`tariff spread is ${arb.spreadC.toFixed(1)}¢`} />
-                    <div className="text-sm">
-                      <Row label="Billed on (deemed)" value={fm((arb.kwh * effDeemed) / 100)} />
-                      <Row label="Customer's actual saving" value={fm(arb.usd)} />
-                      <Row label="Divergence" value={fp((arb.kwh * effDeemed) / 100 - arb.usd)} />
-                    </div>
-                    <Note tone={Math.abs((arb.kwh * effDeemed) / 100 - arb.usd) > 0.15 * Math.max(1, arb.usd) ? "amber" : "zinc"}>
-                      A deemed formula that overstates actual savings is the churn and complaint engine in this business — the customer
-                      compares your invoice to their bill and the numbers don't agree. Keep the deemed spread at or below the real one.
-                    </Note>
+                <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-2">
+                  <Note>
+                    Billed on metered discharge × <strong>{effDeemed}¢/kWh</strong> — this configuration's actual whole-year
+                    average value per kWh (total savings ÷ total kWh discharged, rounded to a clean cent), not a modeled
+                    "what would your bill have been without the battery" the customer has no way to independently check.
+                    Auditable against the meter and the published rate; there's nothing here to tune.
+                  </Note>
+                  <div className="text-sm">
+                    <Row label="Billed on (deemed)" value={fm((arb.kwh * effDeemed) / 100)} />
+                    <Row label="Customer's actual saving" value={fm(arb.usd)} />
+                    <Row label="Divergence (rounding only)" value={fp((arb.kwh * effDeemed) / 100 - arb.usd)} />
                   </div>
-                )}
+                </div>
               </div>
             )}
 
