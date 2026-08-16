@@ -962,11 +962,6 @@ export default function Dashboard() {
                     "what would your bill have been without the battery" the customer has no way to independently check.
                     Auditable against the meter and the published rate; there's nothing here to tune.
                   </Note>
-                  <div className="text-sm">
-                    <Row label="Billed on (deemed)" value={fm((opArb.kwh * effDeemed) / 100)} />
-                    <Row label="Customer's actual saving" value={fm(opArb.usd)} />
-                    <Row label="Divergence (rounding only)" value={fp((opArb.kwh * effDeemed) / 100 - opArb.usd)} />
-                  </div>
                 </div>
               </div>
             )}
