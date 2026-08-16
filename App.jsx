@@ -201,7 +201,7 @@ export default function Dashboard() {
 
   const frontier = useMemo(() => {
     const out = [];
-    for (let p = 0; p <= 100; p += 20) {
+    for (let p = 0; p <= 100; p += 5) {
       const a = annualArbitrage({ plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, preserve: p / 100, eventDays });
       const d = drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: p / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS });
       out.push({ preserve: p, tou: Math.round(a.usd), drv: Math.round(d.total), total: Math.round(a.usd + d.total) });
@@ -741,21 +741,31 @@ export default function Dashboard() {
 
           <div className="mb-6">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch-strategy frontier</p>
-            <ResponsiveContainer width="100%" height={240}>
-              <ComposedChart data={frontier} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                <XAxis dataKey="preserve" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"} label={{ value: "share of non-event days the battery idles to protect its baseline", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
-                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="tou" stackId="s" fill="#16A34A" name="TOU arbitrage" />
-                <Bar dataKey="drv" stackId="s" fill="#185FA5" name="DR revenue" />
-                <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Combined" />
-              </ComposedChart>
-            </ResponsiveContainer>
-            <p className="text-xs text-zinc-400 mt-1.5">
-              On this tariff the combined value is maximized at <strong>{bestPreserve.preserve}% preservation</strong> ({fm(bestPreserve.total)}/yr).
-              {bestPreserve.preserve === 0 && " Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
-            </p>
+            {baselineActive ? (
+              <>
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={frontier} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                    <XAxis dataKey="preserve" type="number" domain={[0, 100]} ticks={[0, 20, 40, 60, 80, 100]} tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"} label={{ value: "share of non-event days the battery idles to protect its baseline", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+                    <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} labelFormatter={(v) => v + "% preservation"} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Area type="monotone" dataKey="tou" stackId="s" stroke="#16A34A" strokeWidth={2} fill="#16A34A" fillOpacity={0.15} name="TOU arbitrage" />
+                    <Area type="monotone" dataKey="drv" stackId="s" stroke="#185FA5" strokeWidth={2} fill="#185FA5" fillOpacity={0.15} name="DR revenue" />
+                    <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={false} name="Combined" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-zinc-400 mt-1.5">
+                  On this tariff the combined value is maximized at <strong>{bestPreserve.preserve}% preservation</strong> ({fm(bestPreserve.total)}/yr).
+                  {bestPreserve.preserve === 0 && " Daily shaving wins because TOU pays on ~350 days a year and event programs pay on roughly a dozen — the arithmetic rarely favors idling a battery to protect a baseline."}
+                </p>
+              </>
+            ) : (
+              <Note>
+                No baseline-basis program (Peak Time Rebates, ELRP) is enabled and eligible on {plan.n} right now, so there's
+                no preservation trade to chart — CPP-style programs don't erode with daily shaving, and TOU arbitrage alone is
+                trivially maximized at 0% preservation. Enable a baseline-basis program in Programs above to see the frontier.
+              </Note>
+            )}
           </div>
 
           <div className="mb-5">
