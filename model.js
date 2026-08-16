@@ -56,6 +56,34 @@ export function chargeWindow(rateArr) {
   return { rate: min, hours: hoursAtMin };
 }
 
+/**
+ * Groups a month's weekday hours by distinct rate value -- the same buckets
+ * a TOU bill itemizes usage into (Peak / Partial-peak / Off-peak / Super
+ * off-peak kWh), highest rate first. Used to let a customer calibrate against
+ * their bill's actual per-period usage instead of one blended monthly total.
+ */
+export function ratePeriodsForMonth(plan, month) {
+  const isSummer = plan.summerMonths.includes(month);
+  const s = isSummer ? plan.s : plan.w;
+  const arr = rateShapeForMonth(plan, month).weekday;
+  const byRate = new Map();
+  arr.forEach((r, h) => {
+    if (!byRate.has(r)) byRate.set(r, []);
+    byRate.get(r).push(h);
+  });
+  const labelFor = (hours) => {
+    const hourSet = new Set(hours);
+    const matches = (a) => a && a.length === hours.length && a.every((h) => hourSet.has(h));
+    if (matches(s.peak)) return "Peak";
+    if (matches(s.partial)) return "Partial-peak";
+    if (matches(s.superOff)) return "Super off-peak";
+    return "Off-peak";
+  };
+  return [...byRate.entries()]
+    .map(([rate, hours]) => ({ rate, hours, label: labelFor(hours) }))
+    .sort((a, b) => b.rate - a.rate);
+}
+
 // --- load shape ------------------------------------------------------------
 
 /**
@@ -63,10 +91,15 @@ export function chargeWindow(rateArr) {
  *   When given, the appliance-implied shape is rescaled so its monthly total
  *   matches exactly, while keeping the same hour-by-hour proportions -- real
  *   totals, still a shape a battery can be dispatched against.
+ * @param opts.actualByTier optional real per-rate-period monthly totals (e.g.
+ *   the Peak/Off-Peak kWh a TOU bill itemizes), array-aligned with
+ *   ratePeriodsForMonth(plan, month). Takes priority over actualKwh -- rescales
+ *   each period's hours independently, so the peak/off-peak *split* can be
+ *   corrected too, not just the total.
  * @returns {{ total: number[24], addressable: number[24], blocked: object[] }}
  * `addressable` is the subset a given battery can physically serve.
  */
-export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverrides = {}, actualKwh = null }) {
+export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverrides = {}, actualKwh = null, actualByTier = null }) {
   const isSummer = plan.summerMonths.includes(month);
   const total = Array(24).fill(0);
   const addressable = Array(24).fill(0);
@@ -107,7 +140,19 @@ export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverr
     else servedNames.push(a.n);
   });
 
-  if (actualKwh != null) {
+  if (actualByTier) {
+    const days = dayCounts(month).total;
+    ratePeriodsForMonth(plan, month).forEach((tier, i) => {
+      const target = actualByTier[i];
+      if (target == null) return;
+      const dailyTierTotal = tier.hours.reduce((s, h) => s + total[h], 0);
+      const impliedMonthly = dailyTierTotal * days;
+      if (impliedMonthly > 0) {
+        const scale = target / impliedMonthly;
+        tier.hours.forEach((h) => { total[h] *= scale; addressable[h] *= scale; });
+      }
+    });
+  } else if (actualKwh != null) {
     const dailyTotal = total.reduce((s, v) => s + v, 0);
     const impliedMonthly = dailyTotal * dayCounts(month).total;
     if (impliedMonthly > 0) {
@@ -196,7 +241,7 @@ function peakUnserved(rateArr, loadArr, d, marginal) {
  *                    counted as bill savings here, not as third-party DR revenue
  * @param opts.dispatchSuccess 0..1 share of CPP events the battery actually covers
  */
-export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
+export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null, monthlyActualByTier = null }) {
   const months = [];
   let usd = 0, kwh = 0, cycles = 0, anyChargeLimited = false, anyPowerLimited = false;
   const bind = { energy: 0, power: 0, charge: 0, load: 0 };
@@ -205,7 +250,7 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
 
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null, actualByTier: monthlyActualByTier?.[m] ?? null });
     const dc = dayCounts(m);
 
     const run = (rateArr, nDays) => {
@@ -289,11 +334,11 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
 // --- what the customer's bill actually does --------------------------------
 
 /** Monthly bill with and without the battery, including fixed charges. */
-export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides, monthlyActual = null }) {
+export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides, monthlyActual = null, monthlyActualByTier = null }) {
   const rows = [];
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null, actualByTier: monthlyActualByTier?.[m] ?? null });
     const dc = dayCounts(m);
     const dayCost = (rateArr) => ls.total.reduce((s, kwh, h) => s + kwh * rateArr[h], 0) / 100;
     const without = dayCost(rs.weekday) * dc.weekday + dayCost(rs.weekend) * dc.weekend + plan.fixed;
@@ -354,13 +399,13 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
+export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null, monthlyActualByTier = null }) {
   const rows = [];
   let cumCycles = 0;
 
   for (let y = 1; y <= years; y++) {
     const capFrac = Math.max(0.5, 1 - FADE_AT_RATED * (cumCycles / bat.cyc));
-    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual });
+    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual, monthlyActualByTier });
     cumCycles += arb.cycles;
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
@@ -518,16 +563,16 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
+export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null, monthlyActualByTier = null }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
       plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays,
       drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
       hwCostFn: () => bat.c * (hwPct / 100),
-      cppOn, cppEvents, dispatchSuccess, monthlyActual,
+      cppOn, cppEvents, dispatchSuccess, monthlyActual, monthlyActualByTier,
     });
     const cost = bat.c * (hwPct / 100);
-    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual });
+    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual, monthlyActualByTier });
 
     let flows, yr1;
     if (opTerms) {
