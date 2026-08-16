@@ -74,7 +74,6 @@ export default function Dashboard() {
   const [evTimer, setEvTimer] = useState(false);
   const [ranking, setRanking] = useState(null);
   const [rankBuyer, setRankBuyer] = useState("homeowner");
-  const [spreadEsc, setSpreadEsc] = useState(2);
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(APPLIANCE_CATS.map((_, i) => [i, i !== 1])));
   const [chartMonth, setChartMonth] = useState(6);
 
@@ -154,10 +153,10 @@ export default function Dashboard() {
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, spreadEsc, preserve: preserve / 100, eventDays,
+    plan, bat, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides, years: LIFE, preserve: preserve / 100, eventDays,
     drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve: preserve / 100, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, spreadEsc, preserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, baselineFrac, applianceOverrides, preserve, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
 
   const effDeemed = deemedSpread ?? Math.round(arb.spreadC);
 
@@ -224,7 +223,7 @@ export default function Dashboard() {
     const opMode = rankBuyer === "operator";
     setRanking(rankBatteries({
       plan, batteries: BATTERIES, counts, sq, baselineFrac: baselineFrac / 100, applianceOverrides,
-      years: LIFE, spreadEsc, preserve: preserve / 100, eventDays, discount,
+      years: LIFE, preserve: preserve / 100, eventDays, discount,
       hwPct: opMode ? hwPct : 100,
       drFn: (b, a, capFrac) => drRevenue({
         plan, bat: b, arb: a, enabled: opMode ? drEnabled : { cpp: true },
@@ -345,6 +344,73 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-5">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
+            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
+              <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
+              <Slider label="Baseline on the battery" value={baselineFrac} onChange={setBaselineFrac} min={0} max={100} step={5} fmt={(v) => v + "%"} />
+              <Note>
+                Lighting, networking, standby and the main fridge sit on circuits all over the house. A battery in the corner
+                reaches only what's plugged into it — one or two outlets' worth, so 20–40% is realistic. A critical-loads
+                subpanel reaches whatever is wired to that panel, typically 50–70%. This is the setting that determines whether
+                the battery can ever cover the whole house, and the answer is no: some load always comes off the meter.
+              </Note>
+            </div>
+            {APPLIANCE_CATS.map((cat, ci) => {
+              const active = cat.i.reduce((s, a) => s + (counts[a.id] || 0), 0);
+              const open = !collapsed[ci];
+              return (
+                <div key={ci} className="mb-1">
+                  <button onClick={() => setCollapsed((p) => ({ ...p, [ci]: !p[ci] }))} className={`w-full flex items-center gap-2 py-2 text-xs font-medium uppercase tracking-wider ${plan.ev && ci === EV_CAT ? "text-amber-600 dark:text-amber-400" : "text-zinc-400 dark:text-zinc-500"}`}>
+                    <span className={`inline-block transition-transform ${open ? "" : "-rotate-90"}`}>▾</span>
+                    {cat.t}{active > 0 && ` (${active})`}
+                    {plan.ev && ci === EV_CAT && (
+                      <span className={`ml-1 text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded font-medium ${evLoad === 0 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
+                        {evLoad === 0 ? "required by this tariff — none added" : "required by this tariff ✓"}
+                      </span>
+                    )}
+                  </button>
+                  {open && (
+                    <>
+                    {ci === EV_CAT && evLoad > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap mb-2 px-1">
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Charging schedule</span>
+                        {[[false, "Plugs in on arrival"], [true, "Charges on a timer"]].map(([v, lbl]) => (
+                          <button key={String(v)} onClick={() => setEvTimer(v)} className={`text-[11px] px-2 py-1 rounded-md font-medium border ${evTimer === v ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600 text-zinc-500"}`}>{lbl}</button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 pb-2">
+                      {cat.i.map((a) => {
+                        const n = counts[a.id] || 0;
+                        const kwRun = a.szf ? a.szf(sq) : a.kwRun;
+                        const surge = a.sgMult ? kwRun * a.sgMult : a.sg;
+                        const fail = servabilityFailure(a, kwRun, surge, bat);
+                        return (
+                          <div key={a.id} className={`flex flex-col p-2 rounded-lg border text-sm ${n > 0 ? (fail ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700") : "border-zinc-200 dark:border-zinc-700"}`}>
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-zinc-900 dark:text-zinc-100 text-xs truncate">{a.n}</div>
+                                <div className="text-[11px] text-zinc-400 dark:text-zinc-500">{kwRun.toFixed(2)} kW · {a.hrsDay} hr/d · {a.volts}V</div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => setCount(a.id, -1)} className="w-6 h-6 rounded text-sm border border-zinc-300 dark:border-zinc-600">−</button>
+                                <span className="w-4 text-center text-sm font-medium">{n}</span>
+                                <button onClick={() => setCount(a.id, 1)} className="w-6 h-6 rounded text-sm border border-zinc-300 dark:border-zinc-600">+</button>
+                              </div>
+                            </div>
+                            {n > 0 && fail && <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 leading-snug">{fail}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Battery</p>
             <select value={batId} onChange={(e) => setBatId(e.target.value)} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
               {BAT_CLASSES.map((c) => (
@@ -431,88 +497,6 @@ export default function Dashboard() {
               <Row label="AC charge rate" value={`${bat.ck} kW`} hint={`${(bat.kw / bat.ck).toFixed(1)} hrs to fill`} />
               <Row label="Chemistry / rated cycles" value={`${bat.chem} / ${bat.cyc.toLocaleString()}`} />
               <Row label="Round-trip efficiency" value={`${(RTE * 100).toFixed(0)}%`} hint="assumption" />
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
-              <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
-              <Slider label="Baseline on the battery" value={baselineFrac} onChange={setBaselineFrac} min={0} max={100} step={5} fmt={(v) => v + "%"} />
-              <Note>
-                Lighting, networking, standby and the main fridge sit on circuits all over the house. A battery in the corner
-                reaches only what's plugged into it — one or two outlets' worth, so 20–40% is realistic. A critical-loads
-                subpanel reaches whatever is wired to that panel, typically 50–70%. This is the setting that determines whether
-                the battery can ever cover the whole house, and the answer is no: some load always comes off the meter.
-              </Note>
-            </div>
-            {APPLIANCE_CATS.map((cat, ci) => {
-              const active = cat.i.reduce((s, a) => s + (counts[a.id] || 0), 0);
-              const open = !collapsed[ci];
-              return (
-                <div key={ci} className="mb-1">
-                  <button onClick={() => setCollapsed((p) => ({ ...p, [ci]: !p[ci] }))} className={`w-full flex items-center gap-2 py-2 text-xs font-medium uppercase tracking-wider ${plan.ev && ci === EV_CAT ? "text-amber-600 dark:text-amber-400" : "text-zinc-400 dark:text-zinc-500"}`}>
-                    <span className={`inline-block transition-transform ${open ? "" : "-rotate-90"}`}>▾</span>
-                    {cat.t}{active > 0 && ` (${active})`}
-                    {plan.ev && ci === EV_CAT && (
-                      <span className={`ml-1 text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded font-medium ${evLoad === 0 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
-                        {evLoad === 0 ? "required by this tariff — none added" : "required by this tariff ✓"}
-                      </span>
-                    )}
-                  </button>
-                  {open && (
-                    <>
-                    {ci === EV_CAT && evLoad > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap mb-2 px-1">
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Charging schedule</span>
-                        {[[false, "Plugs in on arrival"], [true, "Charges on a timer"]].map(([v, lbl]) => (
-                          <button key={String(v)} onClick={() => setEvTimer(v)} className={`text-[11px] px-2 py-1 rounded-md font-medium border ${evTimer === v ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-300 dark:border-zinc-600 text-zinc-500"}`}>{lbl}</button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 pb-2">
-                      {cat.i.map((a) => {
-                        const n = counts[a.id] || 0;
-                        const kwRun = a.szf ? a.szf(sq) : a.kwRun;
-                        const surge = a.sgMult ? kwRun * a.sgMult : a.sg;
-                        const fail = servabilityFailure(a, kwRun, surge, bat);
-                        return (
-                          <div key={a.id} className={`flex flex-col p-2 rounded-lg border text-sm ${n > 0 ? (fail ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700") : "border-zinc-200 dark:border-zinc-700"}`}>
-                            <div className="flex items-center gap-1.5">
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-zinc-900 dark:text-zinc-100 text-xs truncate">{a.n}</div>
-                                <div className="text-[11px] text-zinc-400 dark:text-zinc-500">{kwRun.toFixed(2)} kW · {a.hrsDay} hr/d · {a.volts}V</div>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => setCount(a.id, -1)} className="w-6 h-6 rounded text-sm border border-zinc-300 dark:border-zinc-600">−</button>
-                                <span className="w-4 text-center text-sm font-medium">{n}</span>
-                                <button onClick={() => setCount(a.id, 1)} className="w-6 h-6 rounded text-sm border border-zinc-300 dark:border-zinc-600">+</button>
-                              </div>
-                            </div>
-                            {n > 0 && fail && <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 leading-snug">{fail}</div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mb-5">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Rate outlook</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
-              <Slider label="Peak–off-peak spread" value={spreadEsc} onChange={setSpreadEsc} min={-4} max={6} step={0.5} fmt={(v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%/yr"} />
-              <Note tone={spreadEsc > 3 ? "amber" : "zinc"}>
-                This projects how the peak-to-off-peak <em>spread</em> — the margin a battery arbitrages, not the bill total —
-                changes over the {LIFE}-year life used in payback and NPV math elsewhere on this tab; it does not touch the
-                yr-1 numbers below, which use today's rates. Spread and bill level move independently: a utility can shift
-                revenue from volumetric to fixed charges — the CPUC income-graduated fixed charge is the live example — which
-                raises bills while compressing the spread this business runs on. Negative values are the honest downside case:
-                a shrinking spread erodes future savings even if nothing else about the household changes.
-              </Note>
             </div>
           </div>
 

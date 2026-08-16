@@ -325,7 +325,7 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
+export function projectAsset({ plan, bat, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
   const rows = [];
   let cumCycles = 0;
 
@@ -334,14 +334,13 @@ export function projectAsset({ plan, bat, counts, sq, baselineFrac, applianceOve
     const arb = annualArbitrage({ plan, bat, counts, sq, baselineFrac, applianceOverrides, capFrac, preserve, eventDays });
     cumCycles += arb.cycles;
 
-    const esc = Math.pow(1 + spreadEsc / 100, y - 1);
     const dr = drFn ? drFn(arb, capFrac) : 0;
     const replacement = replaceOnEOL && cumCycles > bat.cyc && !rows.some((r) => r.replaced);
     if (replacement) cumCycles = 0;
 
     rows.push({
       y, capFrac, cycles: arb.cycles, cumCycles,
-      arbUSD: arb.usd * esc, drUSD: dr * esc, kwh: arb.kwh,
+      arbUSD: arb.usd, drUSD: dr, kwh: arb.kwh,
       replaced: replacement, replaceCost: replacement && hwCostFn ? hwCostFn(y) : 0,
       eolYear: cumCycles > bat.cyc,
     });
@@ -489,10 +488,10 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays, discount, hwPct = 100, drFn }) {
+export function rankBatteries({ plan, batteries, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
-      plan, bat, counts, sq, baselineFrac, applianceOverrides, years, spreadEsc, preserve, eventDays,
+      plan, bat, counts, sq, baselineFrac, applianceOverrides, years, preserve, eventDays,
       drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
       hwCostFn: () => bat.c * (hwPct / 100),
     });
