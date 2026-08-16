@@ -10,7 +10,7 @@ import {
 import {
   annualArbitrage, drRevenue, projectAsset, operatorEconomics, fleetEconomics,
   billComparison, rateShapeForMonth, chargeWindow, servabilityFailure, rankBatteries,
-  USABLE_SOC, RTE,
+  USABLE_SOC, RTE, paybackYear,
 } from "./model.js";
 
 const LIFE = 10;
@@ -172,6 +172,20 @@ export default function Dashboard() {
     drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
   }), [plan, bat, counts, sq, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+
+  // Customer buying outright at full retail, TOU savings only -- no
+  // operator, no split, no DR revenue. assetRows already uses bat.c (full
+  // retail) for any mid-life replacement, so this is a straight reuse.
+  const custCashFlow = useMemo(() => {
+    let cum = -bat.c;
+    const rows = [{ year: "Y0", flow: -bat.c, cum, replaced: false }];
+    for (const r of assetRows) {
+      const flow = r.arbUSD - (r.replaceCost || 0);
+      cum += flow;
+      rows.push({ year: "Y" + r.y, flow, cum, replaced: r.replaced });
+    }
+    return { rows, payback: paybackYear(rows.map((r) => r.flow)), net: cum };
+  }, [assetRows, bat.c]);
 
   // Deemed billing rate: the actual whole-year average value per kWh
   // discharged, rounded to a clean cent — a real weighted blend of every
@@ -675,6 +689,42 @@ export default function Dashboard() {
               {(100 * arb.usd / Math.max(1, bills.reduce((s, b) => s + b.without, 0))).toFixed(1)}%).
               Volumetric charges plus the {fm(plan.fixed)}/mo plan premium only — tiered baseline credits, minimum bills, and
               non-bypassable charges are not modeled.
+            </p>
+          </div>
+
+          {/* --- customer-only cash flow --- */}
+          <div className="mb-5">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Customer cash flow — buying outright, TOU only</p>
+            <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+              If this household bought {bat.n} at full retail ({fm(bat.c)}) and ran it purely for the TOU savings above — no
+              operator, no revenue split, no DR programs — this is what that looks like year by year, with degradation and any
+              mid-life replacement (also at full retail) included.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-zinc-400 text-left">
+                  <th className="py-1 pr-2 font-medium">Year</th>
+                  <th className="py-1 px-2 font-medium text-right">Cash flow</th>
+                  <th className="py-1 pl-2 font-medium text-right">Cumulative</th>
+                </tr></thead>
+                <tbody>
+                  {custCashFlow.rows.map((r) => (
+                    <tr key={r.year} className="border-t border-zinc-200 dark:border-zinc-700">
+                      <td className="py-1.5 pr-2 text-zinc-500 dark:text-zinc-400">
+                        {r.year}
+                        {r.replaced && <span className="ml-1.5 text-[10px] text-red-500">replaced</span>}
+                      </td>
+                      <td className={`py-1.5 px-2 text-right font-data ${r.flow < 0 ? "text-red-500" : "text-zinc-500"}`}>{fp(r.flow)}</td>
+                      <td className={`py-1.5 pl-2 text-right font-data font-medium ${r.cum > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.cum)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-zinc-400 mt-2">
+              {custCashFlow.net > 0
+                ? `Net positive over ${LIFE} years: ${fm(custCashFlow.net)}, payback in ${custCashFlow.payback === Infinity ? "never" : custCashFlow.payback.toFixed(1) + " yrs"}.`
+                : `Never breaks even at retail price — ${fm(custCashFlow.net)} net over ${LIFE} years. This is the number a homeowner buying this unit themselves is actually looking at.`}
             </p>
           </div>
         </div>
