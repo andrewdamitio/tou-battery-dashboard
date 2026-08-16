@@ -78,7 +78,11 @@ export default function Dashboard() {
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(APPLIANCE_CATS.map((_, i) => [i, i !== 1])));
   const [chartMonth, setChartMonth] = useState(6);
 
-  // --- DR inputs
+  // --- customer-bill inputs (a standalone buyer, independent of any operator)
+  const [custCppOn, setCustCppOn] = useState(true);
+  const [custCppEvents, setCustCppEvents] = useState(null);
+
+  // --- DR inputs (the operator's fleet program, independent of the above)
   const [dispatchSuccess, setDispatchSuccess] = useState(95);
   const [drEnabled, setDrEnabled] = useState({ cpp: true, elrp: false, ptr: false, cpk: false, whl: false });
   const [drOverrides, setDrOverrides] = useState({ cpk: 40, whl: 0 });
@@ -156,8 +160,13 @@ export default function Dashboard() {
 
   // CPP is bill avoidance, not a third-party payment, so it's folded into
   // TOU bill savings (annualArbitrage's `usd`) rather than the DR-revenue
-  // stack that PTR/ELRP/PJM/wholesale are counted in.
-  const cppOn = !!(drEnabled.cpp && plan.cpp);
+  // stack that PTR/ELRP/PJM/wholesale are counted in. Customer bill and
+  // Operator economics are independent scenarios -- a standalone buyer's own
+  // CPP enrollment vs. an operator's fleet-wide enrollment -- so each gets
+  // its own toggle and its own downstream computation. Only the tariff and
+  // the household's electrical consumption are shared between them.
+  const custCppActive = !!(custCppOn && plan.cpp);
+  const opCppActive = !!(drEnabled.cpp && plan.cpp);
 
   // The battery always shaves every peak day for TOU savings — it never idles
   // to protect a Peak Time Rebates / ELRP baseline. A battery that only pencils
@@ -167,65 +176,44 @@ export default function Dashboard() {
   // this battery's daily use has already eroded to nothing.
   const preserve = 0;
 
-  const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100 }),
-    [plan, bat, counts, sq, applianceOverrides, eventDays, cppOn, cppEvents, dispatchSuccess]
+  // A standalone buyer manages one unit themselves, with their own money on
+  // the line -- there's no fleet-scale "some units are unplugged or unpaired"
+  // uncertainty to model, so CPP dispatch success is assumed to be 100% here.
+  // No baseline-basis programs either: those require an aggregator/operator
+  // relationship this buyer doesn't have.
+  const custArb = useMemo(
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays: 0, cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1 }),
+    [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents]
   );
 
-  const dr = useMemo(
-    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS }),
-    [plan, bat, arb, drEnabled, dispatchSuccess, drOverrides]
-  );
-
-  const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100,
-    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
+  const custAssetRows = useMemo(() => projectAsset({
+    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays: 0,
+    cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, applianceOverrides, eventDays, cppOn, cppEvents, dispatchSuccess, drEnabled, drOverrides]);
+  }), [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents]);
 
   // Customer buying outright at full retail, TOU savings (including any CPP
-  // overlay) only -- no operator, no split, no other DR revenue. assetRows
-  // already uses bat.c (full retail) for any mid-life replacement, so this
-  // is a straight reuse.
+  // overlay enrolled above) only -- no operator, no split, no DR revenue.
+  // custAssetRows already uses bat.c (full retail) for any mid-life
+  // replacement, so this is a straight reuse.
   const custCashFlow = useMemo(() => {
     let cum = -bat.c;
     const rows = [{ year: "Y0", flow: -bat.c, cum, replaced: false }];
-    for (const r of assetRows) {
+    for (const r of custAssetRows) {
       const flow = r.arbUSD - (r.replaceCost || 0);
       cum += flow;
       rows.push({ year: "Y" + r.y, flow, cum, replaced: r.replaced });
     }
     return { rows, payback: paybackYear(rows.map((r) => r.flow)), net: cum };
-  }, [assetRows, bat.c]);
+  }, [custAssetRows, bat.c]);
 
-  // Deemed billing rate: the actual whole-year average value per kWh
-  // discharged, rounded to a clean cent — a real weighted blend of every
-  // season and rate period, not a summer-only approximation, and not a
-  // manual dial, since there's no honest reason to move it off this number.
-  const effDeemed = Math.round((arb.usd / Math.max(1, arb.kwh)) * 100);
+  const eolYear = custAssetRows.findIndex((r) => r.cumCycles > bat.cyc) + 1;
 
-  const op = useMemo(() => operatorEconomics({
-    assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
-    planFixed: plan.fixed, discount, deemedSpreadC: effDeemed,
-  }), [assetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, effDeemed]);
+  const bills = useMemo(() => billComparison({ plan, arb: custArb, counts, sq, bat, applianceOverrides }), [plan, custArb, counts, sq, bat, applianceOverrides]);
 
-  const deliverableKw = useMemo(() => {
-    const m = arb.months[6];
-    if (!m) return 0;
-    return Math.max(...m.dischargeShape);
-  }, [arb]);
-
-  const fleet = useMemo(() => fleetEconomics({
-    unitOpFlows: op.opFlows, perMonth, rampMonths, horizonYears: LIFE, discount,
-    recoveryRate, churn, hw: op.hw, refurb, deliverableKw,
-    dispatchSuccess: dispatchSuccess / 100, minAggKw,
-  }), [op.opFlows, perMonth, rampMonths, discount, recoveryRate, churn, op.hw, refurb, deliverableKw, dispatchSuccess, minAggKw]);
-
-  const bills = useMemo(() => billComparison({ plan, arb, counts, sq, bat, applianceOverrides }), [plan, arb, counts, sq, bat, applianceOverrides]);
-
-  // 24-hour dispatch series for the selected month
+  // 24-hour dispatch series for the selected month (Customer bill tab)
   const daySeries = useMemo(() => {
-    const m = arb.months[chartMonth];
+    const m = custArb.months[chartMonth];
     if (!m) return [];
     const rs = rateShapeForMonth(plan, chartMonth);
     const cw = chargeWindow(rs.weekday);
@@ -249,29 +237,70 @@ export default function Dashboard() {
       });
     }
     return out;
-  }, [arb, chartMonth, plan, bat]);
+  }, [custArb, chartMonth, plan, bat]);
 
-  // Homeowner (retail price, CPP-only) and operator (volume price, full DR
-  // stack) are two lenses on the same purchase decision, not alternatives —
-  // rank both and merge by unit so a divergence between them is visible
-  // directly, instead of hiding one answer behind a toggle.
+  // --- Operator economics: the firm's fleet-scale offer, independent of the
+  // standalone-buyer figures above -----------------------------------------
+
+  const opArb = useMemo(
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100 }),
+    [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess]
+  );
+
+  const dr = useMemo(
+    () => drRevenue({ plan, bat, arb: opArb, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS }),
+    [plan, bat, opArb, drEnabled, dispatchSuccess, drOverrides]
+  );
+
+  const opAssetRows = useMemo(() => projectAsset({
+    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
+    hwCostFn: () => bat.c,
+  }), [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess, drEnabled, drOverrides]);
+
+  // Deemed billing rate: the actual whole-year average value per kWh
+  // discharged, rounded to a clean cent — a real weighted blend of every
+  // season and rate period, not a summer-only approximation, and not a
+  // manual dial, since there's no honest reason to move it off this number.
+  const effDeemed = Math.round((opArb.usd / Math.max(1, opArb.kwh)) * 100);
+
+  const op = useMemo(() => operatorEconomics({
+    assetRows: opAssetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront,
+    planFixed: plan.fixed, discount, deemedSpreadC: effDeemed,
+  }), [opAssetRows, bat, hwPct, cac, svcMo, churn, bizModel, subFee, splitPct, upfront, plan.fixed, discount, effDeemed]);
+
+  const deliverableKw = useMemo(() => {
+    const m = opArb.months[6];
+    if (!m) return 0;
+    return Math.max(...m.dischargeShape);
+  }, [opArb]);
+
+  const fleet = useMemo(() => fleetEconomics({
+    unitOpFlows: op.opFlows, perMonth, rampMonths, horizonYears: LIFE, discount,
+    recoveryRate, churn, hw: op.hw, refurb, deliverableKw,
+    dispatchSuccess: dispatchSuccess / 100, minAggKw,
+  }), [op.opFlows, perMonth, rampMonths, discount, recoveryRate, churn, op.hw, refurb, deliverableKw, dispatchSuccess, minAggKw]);
+
+  // Homeowner (retail price, the buyer's own CPP choice) and operator
+  // (volume price, full DR stack) are two independent lenses on the same
+  // battery, not alternatives — rank both and merge by unit so a divergence
+  // between them is visible directly, instead of hiding one answer behind a
+  // toggle.
   const runRanking = () => {
-    const mkDrFn = (enabled) => (b, a, capFrac) => drRevenue({
-      plan, bat: b, arb: a, enabled,
-      preserve, dispatchSuccess: dispatchSuccess / 100,
-      overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
-    }).total;
-
     const hoRank = rankBatteries({
-      plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
-      hwPct: 100, drFn: mkDrFn({ cpp: true }),
-      cppOn: !!plan.cpp, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+      plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays: 0, discount,
+      hwPct: 100, drFn: null,
+      cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1,
     });
     const opRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
-      hwPct, drFn: mkDrFn(drEnabled),
+      hwPct, drFn: (b, a, capFrac) => drRevenue({
+        plan, bat: b, arb: a, enabled: drEnabled,
+        preserve, dispatchSuccess: dispatchSuccess / 100,
+        overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
+      }).total,
       opTerms: { cac, svcMo, churn, bizModel, subFee, splitPct, upfront },
-      cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+      cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100,
     });
     const hoById = Object.fromEntries(hoRank.map((r) => [r.bat.id, r]));
 
@@ -301,12 +330,10 @@ export default function Dashboard() {
     return next;
   });
 
-  const eolYear = assetRows.findIndex((r) => r.cumCycles > bat.cyc) + 1;
-  const y1 = assetRows[0] || { arbUSD: 0, drUSD: 0 };
-
-  // Does either side of this deal actually make money? Computed once, at the
-  // top level, so it can drive the sticky verdict strip on every tab, not
-  // just the Unit economics tab where the full banner lives.
+  // Does either side of the operator's deal actually make money? Drives the
+  // verdict banner on Operator economics -- the standalone buyer on Customer
+  // bill is judged by their own cash-flow chart instead, since there's no
+  // "deal" to clear there, just a purchase.
   const dealHo = op.hoYr1 > 0;
   const dealOp = op.opIRR !== null && op.opIRR * 100 > discount;
 
@@ -333,24 +360,6 @@ export default function Dashboard() {
       <div className="flex gap-0.5 border-b border-zinc-200 dark:border-zinc-700 mb-4 flex-wrap">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${tab === t.id ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>{t.label}</button>
-        ))}
-      </div>
-
-      <div className="sticky top-2 z-10 mb-5 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        <div className="flex items-center gap-3 pr-3 border-r border-zinc-200 dark:border-zinc-700">
-          <span className={`flex items-center gap-1.5 text-xs font-medium ${dealHo ? "text-green-600" : "text-red-500"}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${dealHo ? "bg-green-500" : "bg-red-500"}`} />Customer {dealHo ? fp(op.hoYr1) : fm(op.hoYr1)}/yr
-          </span>
-          <span className={`flex items-center gap-1.5 text-xs font-medium ${dealOp ? "text-green-600" : "text-red-500"}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${dealOp ? "bg-green-500" : "bg-red-500"}`} />Operator {op.opIRR === null ? "no payback" : pct(op.opIRR) + " IRR"}
-          </span>
-        </div>
-        {[["Plan", plan.n], ["Battery", bat.n], ["Limit", BIND_TEXT[arb.bindingConstraint][0]],
-          ["TOU", fm(arb.usd) + "/yr"], ["DR", fm(dr.total) + "/yr"]].map(([k, v]) => (
-          <div key={k} className="flex items-baseline gap-1.5 min-w-0">
-            <span className="font-data text-[10px] uppercase tracking-wider text-zinc-400">{k}</span>
-            <span className="font-data text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{v}</span>
-          </div>
         ))}
       </div>
 
@@ -432,7 +441,7 @@ export default function Dashboard() {
             {plan.cpp && (
               <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
                 <label className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  <input type="checkbox" checked={!!drEnabled.cpp} onChange={(e) => setDrEnabled((v) => ({ ...v, cpp: e.target.checked }))} className="w-4 h-4" />
+                  <input type="checkbox" checked={custCppOn} onChange={(e) => setCustCppOn(e.target.checked)} className="w-4 h-4" />
                   Enroll in {plan.cpp.n} (critical peak pricing)
                 </label>
                 <Note>
@@ -440,10 +449,11 @@ export default function Dashboard() {
                   limited number of days a year — typically 9 to 18 times a summer — the peak price jumps by a large adder,{" "}
                   {plan.cpp.adder}¢/kWh on {plan.cpp.n}. A battery serving your load through the event means you never pay it.
                   That's bill avoidance, not a rebate: nobody measures you against a baseline, so nothing erodes, and it's
-                  counted directly in the bill savings below, the same as ordinary TOU shaving.
+                  counted directly in the bill savings below, the same as ordinary TOU shaving. This is your own choice as a
+                  standalone buyer — independent of whatever an operator enrolls its fleet customers in on Operator economics.
                 </Note>
-                {drEnabled.cpp && (
-                  <Slider label={`${plan.cpp.n} events/yr`} value={cppEvents ?? plan.cpp.ev} onChange={setCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
+                {custCppOn && (
+                  <Slider label={`${plan.cpp.n} events/yr`} value={custCppEvents ?? plan.cpp.ev} onChange={setCustCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
                 )}
               </div>
             )}
@@ -533,12 +543,13 @@ export default function Dashboard() {
                 <button onClick={runRanking} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household,
-                and this connection mode, computed two ways at once: a <strong>homeowner</strong> buying outright at full retail
-                and keeping everything the battery earns (TOU savings plus CPP avoidance), and an <strong>operator</strong>{" "}
-                paying {hwPct}% of retail and running the exact offer configured above — same subscription fee or split,
-                servicing cost, and churn as the sticky header — not a hypothetical where the operator keeps the full arbitrage
-                and DR value. Sorted by operator NPV; a homeowner's own top pick is flagged separately when it differs.
+                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff and this
+                household, computed two ways at once: a <strong>homeowner</strong> buying outright at full retail and keeping
+                everything the battery earns (TOU savings, including your own CPP enrollment above), and an{" "}
+                <strong>operator</strong> paying {hwPct}% of retail and running the exact offer configured on Operator
+                economics — same subscription fee or split, servicing cost, churn, and its own separate CPP enrollment — not a
+                hypothetical where the operator keeps the full arbitrage and DR value. Sorted by operator NPV; a homeowner's
+                own top pick is flagged separately when it differs.
               </p>
 
               {ranking && (() => {
@@ -620,15 +631,15 @@ export default function Dashboard() {
           {/* --- results --- */}
           <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Results</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <Metric label="Bill savings (yr 1)" value={fm(arb.usd)} sub={`${Math.round(arb.kwh)} kWh shifted`} positive={arb.usd > 0} />
-            <Metric label="Binding constraint" value={BIND_TEXT[arb.bindingConstraint][0]} sub={`${arb.peakWindowLoadKwh.toFixed(1)} kWh addressable in peak`} />
-            <Metric label="Equivalent cycles/yr" value={Math.round(arb.cycles)} sub={`rated ${bat.cyc.toLocaleString()} (${bat.chem})`} positive={arb.cycles * LIFE <= bat.cyc} />
-            <Metric label="Simple payback" value={arb.usd > 0 ? (bat.c / arb.usd).toFixed(1) + " yrs" : "Never"} sub={`on ${fm(bat.c)} retail`} positive={arb.usd > 0 && bat.c / arb.usd <= LIFE} />
+            <Metric label="Bill savings (yr 1)" value={fm(custArb.usd)} sub={`${Math.round(custArb.kwh)} kWh shifted`} positive={custArb.usd > 0} />
+            <Metric label="Binding constraint" value={BIND_TEXT[custArb.bindingConstraint][0]} sub={`${custArb.peakWindowLoadKwh.toFixed(1)} kWh addressable in peak`} />
+            <Metric label="Equivalent cycles/yr" value={Math.round(custArb.cycles)} sub={`rated ${bat.cyc.toLocaleString()} (${bat.chem})`} positive={custArb.cycles * LIFE <= bat.cyc} />
+            <Metric label="Simple payback" value={custArb.usd > 0 ? (bat.c / custArb.usd).toFixed(1) + " yrs" : "Never"} sub={`on ${fm(bat.c)} retail`} positive={custArb.usd > 0 && bat.c / custArb.usd <= LIFE} />
           </div>
 
-          <div className="mb-4"><Note tone={arb.bindingConstraint === "load" ? "amber" : "zinc"}>
-            <strong>{BIND_TEXT[arb.bindingConstraint][0]} is what limits savings here</strong> on {Math.round(arb.bindShare * 100)}% of
-            billing days. {BIND_TEXT[arb.bindingConstraint][1]} This is the readout to check before changing battery or connection
+          <div className="mb-4"><Note tone={custArb.bindingConstraint === "load" ? "amber" : "zinc"}>
+            <strong>{BIND_TEXT[custArb.bindingConstraint][0]} is what limits savings here</strong> on {Math.round(custArb.bindShare * 100)}% of
+            billing days. {BIND_TEXT[custArb.bindingConstraint][1]} This is the readout to check before changing battery or connection
             mode — if the constraint is stored energy, unlocking more load changes nothing.
           </Note></div>
 
@@ -655,17 +666,17 @@ export default function Dashboard() {
 
           {eolYear > 0 && eolYear <= LIFE && (
             <div className="mb-4"><Note tone="red">
-              At {Math.round(arb.cycles)} equivalent full cycles a year, this unit passes its rated {bat.cyc.toLocaleString()}-cycle
+              At {Math.round(custArb.cycles)} equivalent full cycles a year, this unit passes its rated {bat.cyc.toLocaleString()}-cycle
               life in <strong>year {eolYear}</strong>. The projection books a replacement there. Daily-cycling a battery sold on a
               backup-power duty cycle is the warranty exposure in this business — {bat.chem === "NMC" ? "and NMC chemistry makes it acute." : "check the warranty's cycle basis before underwriting ten years."}
             </Note></div>
           )}
 
-          {arb.blocked.length > 0 && (
+          {custArb.blocked.length > 0 && (
             <div className="mb-4"><Note tone="amber">
               <strong>Not servable by this unit</strong> — excluded from savings:
               <ul className="mt-1.5 space-y-0.5">
-                {arb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
+                {custArb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
               </ul>
               <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
             </Note></div>
@@ -696,7 +707,7 @@ export default function Dashboard() {
               Dispatch is greedy by price: the battery serves the most expensive hours first until stored energy, inverter power, or
               addressable load runs out. Grey is what still comes off the meter — hardwired loads, hours past the energy budget, and
               anything above the {bat.pw} kW inverter ceiling.
-              {arb.anyChargeLimited && <span className="text-amber-600 dark:text-amber-400"> Charging is the binding constraint in at least one month: the off-peak window is too short to refill at {bat.ck} kW.</span>}
+              {custArb.anyChargeLimited && <span className="text-amber-600 dark:text-amber-400"> Charging is the binding constraint in at least one month: the off-peak window is too short to refill at {bat.ck} kW.</span>}
             </p>
           </div>
 
@@ -715,8 +726,8 @@ export default function Dashboard() {
             </ResponsiveContainer>
             <p className="text-xs text-zinc-400 mt-1.5">
               Annual bill without: <strong>{fm(bills.reduce((s, b) => s + b.without, 0))}</strong> · with:{" "}
-              <strong>{fm(bills.reduce((s, b) => s + b.with, 0))}</strong> · saved {fm(arb.usd)} (
-              {(100 * arb.usd / Math.max(1, bills.reduce((s, b) => s + b.without, 0))).toFixed(1)}%).
+              <strong>{fm(bills.reduce((s, b) => s + b.with, 0))}</strong> · saved {fm(custArb.usd)} (
+              {(100 * custArb.usd / Math.max(1, bills.reduce((s, b) => s + b.without, 0))).toFixed(1)}%).
               Volumetric charges plus the {fm(plan.fixed)}/mo plan premium only — tiered baseline credits, minimum bills, and
               non-bypassable charges are not modeled.
             </p>
@@ -791,10 +802,10 @@ export default function Dashboard() {
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner, incl. CPP" />
+              <Metric label="TOU savings" value={fm(opArb.usd)} sub="to the homeowner, incl. CPP" />
               <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
               <Metric label="Forfeited to erosion" value={fm(dr.foregone)} sub="baseline-basis only" positive={dr.foregone > 0 ? false : undefined} />
-              <Metric label="Combined" value={fm(arb.usd + dr.total)} positive={arb.usd + dr.total > 0} />
+              <Metric label="Combined" value={fm(opArb.usd + dr.total)} positive={opArb.usd + dr.total > 0} />
             </div>
 
             <div className="mb-5">
@@ -820,7 +831,7 @@ export default function Dashboard() {
                             <span className="text-zinc-400">/yr</span></span>
                         )}
                         <span className="ml-auto font-data text-sm font-medium text-green-600">
-                          {isCpp ? (cppActive ? fm(arb.cppUsd) + "/yr" : ok ? "—" : "n/a") : item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}
+                          {isCpp ? (cppActive ? fm(opArb.cppUsd) + "/yr" : ok ? "—" : "n/a") : item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}
                         </span>
                       </div>
                       <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
@@ -876,7 +887,7 @@ export default function Dashboard() {
             <div className="mb-6">
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Dispatch outcome</p>
               <div className="grid grid-cols-2 gap-3">
-                <Metric label="TOU arbitrage" value={fm(arb.usd)} sub="to the homeowner, at current settings" positive={arb.usd > 0} />
+                <Metric label="TOU arbitrage" value={fm(opArb.usd)} sub="to the homeowner, at current settings" positive={opArb.usd > 0} />
                 <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
               </div>
               <p className="text-xs text-zinc-400 mt-1.5">
@@ -952,9 +963,9 @@ export default function Dashboard() {
                     Auditable against the meter and the published rate; there's nothing here to tune.
                   </Note>
                   <div className="text-sm">
-                    <Row label="Billed on (deemed)" value={fm((arb.kwh * effDeemed) / 100)} />
-                    <Row label="Customer's actual saving" value={fm(arb.usd)} />
-                    <Row label="Divergence (rounding only)" value={fp((arb.kwh * effDeemed) / 100 - arb.usd)} />
+                    <Row label="Billed on (deemed)" value={fm((opArb.kwh * effDeemed) / 100)} />
+                    <Row label="Customer's actual saving" value={fm(opArb.usd)} />
+                    <Row label="Divergence (rounding only)" value={fp((opArb.kwh * effDeemed) / 100 - opArb.usd)} />
                   </div>
                 </div>
               </div>
@@ -999,11 +1010,11 @@ export default function Dashboard() {
                 </LineChart>
               </ResponsiveContainer>
               <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
-                {assetRows.filter((r) => r.replaced).map((r) => (
+                {opAssetRows.filter((r) => r.replaced).map((r) => (
                   <Row key={r.y} label={`Replacement booked — year ${r.y}`} value={fm(r.replaceCost * hwPct / 100)} hint="cycle life exhausted" />
                 ))}
-                <Row label="Capacity remaining at Y10" value={`${(assetRows[LIFE - 1]?.capFrac * 100).toFixed(0)}%`} />
-                <Row label="Cumulative equivalent cycles" value={Math.round(assetRows[LIFE - 1]?.cumCycles || 0).toLocaleString()} hint={`rated ${bat.cyc.toLocaleString()}`} />
+                <Row label="Capacity remaining at Y10" value={`${(opAssetRows[LIFE - 1]?.capFrac * 100).toFixed(0)}%`} />
+                <Row label="Cumulative equivalent cycles" value={Math.round(opAssetRows[LIFE - 1]?.cumCycles || 0).toLocaleString()} hint={`rated ${bat.cyc.toLocaleString()}`} />
               </div>
             </div>
           </div>
