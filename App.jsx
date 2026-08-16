@@ -71,7 +71,7 @@ export default function Dashboard() {
     cppOn: false, cppName: "Custom CPP", cppAdder: 50, cppEvMin: 1, cppEvMax: 18, cppEvDefault: 12,
   });
   const [sq, setSq] = useState(1600);
-  const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
+  const [counts, setCounts] = useState({});
   const [loadInputMode, setLoadInputMode] = useState("appliances");
   const [calibMode, setCalibMode] = useState("total");
   const [monthlyActual, setMonthlyActual] = useState({});
