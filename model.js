@@ -179,8 +179,11 @@ function peakUnserved(rateArr, loadArr, d, marginal) {
  * @param opts.preserve 0..1 — share of NON-EVENT days the battery idles to
  *                      protect its DR baseline. 0 = shave daily.
  * @param opts.eventDays number of DR event days/yr that must be shaved regardless
+ * @param opts.cppOn whether a CPP overlay is enrolled — bill avoidance, so it's
+ *                    counted as bill savings here, not as third-party DR revenue
+ * @param opts.dispatchSuccess 0..1 share of CPP events the battery actually covers
  */
-export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides }) {
+export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
   const months = [];
   let usd = 0, kwh = 0, cycles = 0, anyChargeLimited = false, anyPowerLimited = false;
   const bind = { energy: 0, power: 0, charge: 0, load: 0 };
@@ -242,13 +245,29 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
   const peakWindowLoadKwh = peakHours.reduce((s, h) => s + (summerShape?.loadShape[h] ?? 0), 0);
   const spreadC = plan.s.rPeak - Math.min(plan.s.rOff, plan.s.superOff ? plan.s.rSuperOff : plan.s.rOff);
 
+  // CPP avoidance is a rate feature, not a payment — the customer's own bill
+  // is simply smaller on event days, exactly like ordinary TOU shaving. So it
+  // belongs in `usd` (bill savings), not in the separate DR-revenue stack that
+  // other, third-party-paid programs are counted in.
+  let cppUsd = 0;
+  if (cppOn && plan.cpp) {
+    const ev = cppEvents ?? plan.cpp.ev;
+    const perEventKwh = Math.min(
+      bat.kw * USABLE_SOC * capFrac,
+      4 * bat.pw,
+      peakWindowLoadKwh * (4 / Math.max(1, peakHours.length)),
+    );
+    cppUsd = (ev * perEventKwh * plan.cpp.adder) / 100 * dispatchSuccess;
+    usd += cppUsd;
+  }
+
   const bindTotal = bind.energy + bind.power + bind.charge + bind.load;
   const bindingConstraint = bindTotal === 0 ? "none"
     : Object.entries(bind).sort((a, b) => b[1] - a[1])[0][0];
 
   return {
     usd, kwh, cycles, months, blocked, anyChargeLimited, anyPowerLimited,
-    peakWindowLoadKwh, peakWindowHours: peakHours.length, spreadC,
+    peakWindowLoadKwh, peakWindowHours: peakHours.length, spreadC, cppUsd,
     bind, bindingConstraint, bindShare: bindTotal ? bind[bindingConstraint] / bindTotal : 0,
     sample: shapeSample,
   };
@@ -274,12 +293,14 @@ export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides 
 // --- demand response -------------------------------------------------------
 
 /**
- * DR revenue with baseline erosion made explicit.
+ * DR revenue with baseline erosion made explicit. CPP is not included here —
+ * it's bill avoidance, not a third-party payment, so it's counted directly in
+ * annualArbitrage's `usd` instead (see its `cppOn` param).
  * `preserve` (0..1) is the share of non-event days the battery idles.
- * Baseline-basis programs pay ~proportionally to preserve; avoidance-basis
- * programs are unaffected.
+ * Baseline-basis programs pay ~proportionally to preserve; indirect programs
+ * are manual overrides.
  */
-export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, cppEvents, overrides = {}, programs, capFrac = 1 }) {
+export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, overrides = {}, programs, capFrac = 1 }) {
   const out = [];
 
   // Energy deliverable during ONE event, not one day. Bounded by three things:
@@ -295,14 +316,9 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
     if (!enabled[p.id]) return;
     const stateOk = !p.st || p.st.includes(plan.st);
     if (!stateOk) return;
+    if (p.basis === "avoidance") return;
 
-    if (p.basis === "avoidance") {
-      if (!plan.cpp) return;
-      const ev = cppEvents ?? plan.cpp.ev;
-      const perEventKwh = eventKwh(4);
-      const value = (ev * perEventKwh * plan.cpp.adder) / 100 * dispatchSuccess;
-      out.push({ id: p.id, n: `${plan.cpp.n} avoidance`, basis: p.basis, value, eroded: 0, perEventKwh });
-    } else if (p.basis === "baseline") {
+    if (p.basis === "baseline") {
       const perEventKwh = eventKwh(p.hoursPerEvent);
       const gross = p.events * perEventKwh * p.rate * dispatchSuccess;
       const value = gross * preserve;
@@ -325,13 +341,13 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn }) {
+export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
   const rows = [];
   let cumCycles = 0;
 
   for (let y = 1; y <= years; y++) {
     const capFrac = Math.max(0.5, 1 - FADE_AT_RATED * (cumCycles / bat.cyc));
-    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays });
+    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays, cppOn, cppEvents, dispatchSuccess });
     cumCycles += arb.cycles;
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
@@ -489,15 +505,16 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms }) {
+export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
       plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays,
       drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
       hwCostFn: () => bat.c * (hwPct / 100),
+      cppOn, cppEvents, dispatchSuccess,
     });
     const cost = bat.c * (hwPct / 100);
-    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays });
+    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess });
 
     let flows, yr1;
     if (opTerms) {

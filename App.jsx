@@ -149,6 +149,11 @@ export default function Dashboard() {
     [drEnabled, plan.st, plan.cpp]
   );
 
+  // CPP is bill avoidance, not a third-party payment, so it's folded into
+  // TOU bill savings (annualArbitrage's `usd`) rather than the DR-revenue
+  // stack that PTR/ELRP/PJM/wholesale are counted in.
+  const cppOn = !!(drEnabled.cpp && plan.cpp);
+
   // The battery always shaves every peak day for TOU savings — it never idles
   // to protect a Peak Time Rebates / ELRP baseline. A battery that only pencils
   // out by sitting idle isn't a battery worth buying, so that strategy isn't
@@ -158,24 +163,25 @@ export default function Dashboard() {
   const preserve = 0;
 
   const arb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays }),
-    [plan, bat, counts, sq, applianceOverrides, eventDays]
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100 }),
+    [plan, bat, counts, sq, applianceOverrides, eventDays, cppOn, cppEvents, dispatchSuccess]
   );
 
   const dr = useMemo(
-    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS }),
-    [plan, bat, arb, drEnabled, dispatchSuccess, cppEvents, drOverrides]
+    () => drRevenue({ plan, bat, arb, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS }),
+    [plan, bat, arb, drEnabled, dispatchSuccess, drOverrides]
   );
 
   const assetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays,
-    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
+    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+    drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, applianceOverrides, eventDays, drEnabled, dispatchSuccess, cppEvents, drOverrides]);
+  }), [plan, bat, counts, sq, applianceOverrides, eventDays, cppOn, cppEvents, dispatchSuccess, drEnabled, drOverrides]);
 
-  // Customer buying outright at full retail, TOU savings only -- no
-  // operator, no split, no DR revenue. assetRows already uses bat.c (full
-  // retail) for any mid-life replacement, so this is a straight reuse.
+  // Customer buying outright at full retail, TOU savings (including any CPP
+  // overlay) only -- no operator, no split, no other DR revenue. assetRows
+  // already uses bat.c (full retail) for any mid-life replacement, so this
+  // is a straight reuse.
   const custCashFlow = useMemo(() => {
     let cum = -bat.c;
     const rows = [{ year: "Y0", flow: -bat.c, cum, replaced: false }];
@@ -248,17 +254,19 @@ export default function Dashboard() {
     const mkDrFn = (enabled) => (b, a, capFrac) => drRevenue({
       plan, bat: b, arb: a, enabled,
       preserve, dispatchSuccess: dispatchSuccess / 100,
-      cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
+      overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
     }).total;
 
     const hoRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
       hwPct: 100, drFn: mkDrFn({ cpp: true }),
+      cppOn: !!plan.cpp, cppEvents, dispatchSuccess: dispatchSuccess / 100,
     });
     const opRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
       hwPct, drFn: mkDrFn(drEnabled),
       opTerms: { cac, svcMo, churn, bizModel, subFee, splitPct, upfront },
+      cppOn, cppEvents, dispatchSuccess: dispatchSuccess / 100,
     });
     const hoById = Object.fromEntries(hoRank.map((r) => [r.bat.id, r]));
 
@@ -410,10 +418,28 @@ export default function Dashboard() {
                   </div>
                 )}
                 <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
-                  Adds a CPP row to the Operator economics tab exactly like a real tariff's overlay: on the events you set, the peak
-                  price jumps by the adder above, and a battery serving load through the event avoids it. Bill avoidance,
-                  not a rebate — no baseline to erode, and it stacks cleanly with daily TOU shaving.
+                  Adds a CPP overlay exactly like a real tariff's: on the events you set, the peak price jumps by the adder
+                  above, and a battery serving load through the event avoids it — counted directly in the bill savings below,
+                  the same as ordinary TOU shaving, not as separate DR revenue.
                 </p>
+              </div>
+            )}
+            {plan.cpp && (
+              <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  <input type="checkbox" checked={!!drEnabled.cpp} onChange={(e) => setDrEnabled((v) => ({ ...v, cpp: e.target.checked }))} className="w-4 h-4" />
+                  Enroll in {plan.cpp.n} (critical peak pricing)
+                </label>
+                <Note>
+                  <strong>CPP = Critical Peak Pricing.</strong> In exchange for a small year-round discount, you agree that on a
+                  limited number of days a year — typically 9 to 18 times a summer — the peak price jumps by a large adder,{" "}
+                  {plan.cpp.adder}¢/kWh on {plan.cpp.n}. A battery serving your load through the event means you never pay it.
+                  That's bill avoidance, not a rebate: nobody measures you against a baseline, so nothing erodes, and it's
+                  counted directly in the bill savings below, the same as ordinary TOU shaving.
+                </Note>
+                {drEnabled.cpp && (
+                  <Slider label={`${plan.cpp.n} events/yr`} value={cppEvents ?? plan.cpp.ev} onChange={setCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
+                )}
               </div>
             )}
           </div>
@@ -695,9 +721,9 @@ export default function Dashboard() {
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Customer cash flow — buying outright, TOU only</p>
             <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
-              If this household bought {bat.n} at full retail ({fm(bat.c)}) and ran it purely for the TOU savings above — no
-              operator, no revenue split, no DR programs — this is what that looks like year by year, with degradation and any
-              mid-life replacement (also at full retail) included.
+              If this household bought {bat.n} at full retail ({fm(bat.c)}) and ran it purely for the TOU savings above
+              (including any CPP overlay enrolled above) — no operator, no revenue split, no other DR programs — this is what
+              that looks like year by year, with degradation and any mid-life replacement (also at full retail) included.
             </p>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={custCashFlow.rows.map((r) => ({ year: r.year, Cumulative: Math.round(r.cum) }))} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
@@ -758,7 +784,7 @@ export default function Dashboard() {
             </Note></div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner" />
+              <Metric label="TOU savings" value={fm(arb.usd)} sub="to the homeowner, incl. CPP" />
               <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator" />
               <Metric label="Forfeited to erosion" value={fm(dr.foregone)} sub="baseline-basis only" positive={dr.foregone > 0 ? false : undefined} />
               <Metric label="Combined" value={fm(arb.usd + dr.total)} positive={arb.usd + dr.total > 0} />
@@ -769,7 +795,9 @@ export default function Dashboard() {
               <div className="bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-hidden">
                 {DR_PROGRAMS.map((p) => {
                   const ok = (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp);
-                  const item = dr.items.find((x) => x.id === p.id);
+                  const isCpp = p.id === "cpp";
+                  const item = isCpp ? null : dr.items.find((x) => x.id === p.id);
+                  const cppActive = isCpp && drEnabled.cpp && ok;
                   const badge = { baseline: ["Erodes", "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"], avoidance: ["Stacks", "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"], indirect: ["Indirect", "bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"] }[p.basis];
                   return (
                     <div key={p.id} className="border-b border-zinc-200 dark:border-zinc-700 last:border-0 p-3">
@@ -784,9 +812,14 @@ export default function Dashboard() {
                             <input type="number" min={0} step={5} value={drOverrides[p.id] ?? 0} onChange={(e) => setDrOverrides((v) => ({ ...v, [p.id]: Math.max(0, +e.target.value || 0) }))} className="p-1 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
                             <span className="text-zinc-400">/yr</span></span>
                         )}
-                        <span className="ml-auto font-data text-sm font-medium text-green-600">{item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}</span>
+                        <span className="ml-auto font-data text-sm font-medium text-green-600">
+                          {isCpp ? (cppActive ? fm(arb.cppUsd) + "/yr" : ok ? "—" : "n/a") : item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}
+                        </span>
                       </div>
                       <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
+                      {isCpp && cppActive && (
+                        <p className="text-xs text-zinc-400 mt-1">Counted in TOU savings above, not DR revenue — it's a rate feature, not a third-party payment.</p>
+                      )}
                       {item && item.eroded > 0 && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                           Would be {fm(item.gross)}/yr if this battery idled to protect its baseline — but it always shaves daily
@@ -1059,6 +1092,7 @@ export default function Dashboard() {
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{p.note}</p>
               {p.basis === "baseline" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">Baseline-measured — value decays if the battery also shaves TOU peaks daily. See the Operator economics tab.</p>}
+              {p.basis === "avoidance" && <p className="text-xs text-blue-600 dark:text-blue-400 mt-1.5">Counted as bill savings (TOU), not DR revenue — it's a rate feature, not a third-party payment. See Customer bill or Operator economics.</p>}
             </div>
           ))}
 
