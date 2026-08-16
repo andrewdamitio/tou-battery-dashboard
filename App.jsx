@@ -75,7 +75,6 @@ export default function Dashboard() {
   const [batId, setBatId] = useState("al");
   const [evTimer, setEvTimer] = useState(false);
   const [ranking, setRanking] = useState(null);
-  const [rankBuyer, setRankBuyer] = useState("homeowner");
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(APPLIANCE_CATS.map((_, i) => [i, i !== 1])));
   const [chartMonth, setChartMonth] = useState(6);
 
@@ -227,17 +226,34 @@ export default function Dashboard() {
     return out;
   }, [arb, chartMonth, plan, bat]);
 
-  const runRanking = (buyer = rankBuyer) => {
-    const opMode = buyer === "operator";
-    setRanking(rankBatteries({
-      plan, batteries: BATTERIES, counts, sq, applianceOverrides,
-      years: LIFE, preserve, eventDays, discount,
-      hwPct: opMode ? hwPct : 100,
-      drFn: (b, a, capFrac) => drRevenue({
-        plan, bat: b, arb: a, enabled: opMode ? drEnabled : { cpp: true },
-        preserve, dispatchSuccess: dispatchSuccess / 100,
-        cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
-      }).total,
+  // Homeowner (retail price, CPP-only) and operator (volume price, full DR
+  // stack) are two lenses on the same purchase decision, not alternatives —
+  // rank both and merge by unit so a divergence between them is visible
+  // directly, instead of hiding one answer behind a toggle.
+  const runRanking = () => {
+    const mkDrFn = (enabled) => (b, a, capFrac) => drRevenue({
+      plan, bat: b, arb: a, enabled,
+      preserve, dispatchSuccess: dispatchSuccess / 100,
+      cppEvents, overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
+    }).total;
+
+    const hoRank = rankBatteries({
+      plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
+      hwPct: 100, drFn: mkDrFn({ cpp: true }),
+    });
+    const opRank = rankBatteries({
+      plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
+      hwPct, drFn: mkDrFn(drEnabled),
+    });
+    const hoById = Object.fromEntries(hoRank.map((r) => [r.bat.id, r]));
+
+    setRanking(opRank.map((op) => {
+      const ho = hoById[op.bat.id];
+      return {
+        bat: op.bat, eolYear: op.eolYear, binding: op.binding,
+        opCost: op.cost, opNpv: op.npv, opPayback: op.payback,
+        hoCost: ho.cost, hoNpv: ho.npv, hoPayback: ho.payback,
+      };
     }));
   };
 
@@ -468,36 +484,42 @@ export default function Dashboard() {
             {/* --- battery finder --- */}
             <div className="mb-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
               <div className="flex items-center gap-2 flex-wrap mb-2">
-                <span className="text-sm text-zinc-500 dark:text-zinc-400">Rank all {BATTERIES.length} for a</span>
-                <div className="flex gap-0.5 bg-white dark:bg-zinc-900 p-0.5 rounded-md">
-                  {[["homeowner", "homeowner buying retail"], ["operator", "operator at volume"]].map(([id, lbl]) => (
-                    <button key={id} onClick={() => { setRankBuyer(id); if (ranking) runRanking(id); }} className={`px-2.5 py-1 text-xs font-medium rounded ${rankBuyer === id ? "bg-blue-500 text-white" : "text-zinc-500"}`}>{lbl}</button>
-                  ))}
-                </div>
-                <button onClick={() => runRanking()} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
+                <span className="text-sm text-zinc-500 dark:text-zinc-400">Rank all {BATTERIES.length} for both buyers</span>
+                <button onClick={runRanking} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household, and
-                this connection mode — purchase price, bill savings, {rankBuyer === "operator" ? "the DR stack you have enabled," : "CPP avoidance,"} and any
-                mid-life replacement. {rankBuyer === "operator" ? `Hardware at ${hwPct}% of retail.` : "Hardware at full retail; DR revenue excluded, since a homeowner doesn't capture it."}
+                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff, this household,
+                and this connection mode, computed two ways at once: a <strong>homeowner</strong> paying full retail and
+                capturing only CPP avoidance, and an <strong>operator</strong> paying {hwPct}% of retail and capturing the DR
+                stack enabled on the DR stack tab. Sorted by operator NPV; a homeowner's own top pick is flagged separately when
+                it differs.
               </p>
 
               {ranking && (() => {
-                const winners = ranking.filter((r) => r.npv > 0);
+                const opWinners = ranking.filter((r) => r.opNpv > 0);
+                const hoWinners = ranking.filter((r) => r.hoNpv > 0);
                 const top = ranking[0];
+                const hoTop = [...ranking].sort((a, b) => b.hoNpv - a.hoNpv)[0];
                 return (
                   <div className="mt-3">
-                    <div className={`p-3 rounded-lg mb-2 text-xs leading-relaxed ${winners.length ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "bg-amber-50 dark:bg-amber-900/25 text-amber-800 dark:text-amber-300"}`}>
-                      {winners.length
-                        ? <><strong>{top.bat.n}</strong> — NPV {fm(top.npv)}, payback {top.payback === Infinity ? "never" : top.payback.toFixed(1) + " yrs"}. {winners.length} of {ranking.length} clear the {discount}% hurdle.</>
-                        : <><strong>Nothing clears the {discount}% hurdle on this configuration.</strong> {top.bat.n} is the least-bad at {fm(top.npv)}. This is the normal result for a homeowner at retail prices — it is the reason a company-owned fleet buying at volume is the model that works, and you can see that by switching the toggle above to operator.</>}
+                    <div className={`p-3 rounded-lg mb-2 text-xs leading-relaxed ${opWinners.length ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "bg-amber-50 dark:bg-amber-900/25 text-amber-800 dark:text-amber-300"}`}>
+                      {opWinners.length
+                        ? <><strong>{top.bat.n}</strong> is the operator's best pick — NPV {fm(top.opNpv)}, payback {top.opPayback === Infinity ? "never" : top.opPayback.toFixed(1) + " yrs"}. {opWinners.length} of {ranking.length} clear the {discount}% hurdle for the operator.</>
+                        : <><strong>Nothing clears the {discount}% hurdle for the operator.</strong> {top.bat.n} is the least-bad at {fm(top.opNpv)}.</>}
+                      {" "}For a homeowner at retail, {hoWinners.length
+                        ? <>{hoWinners.length} of {ranking.length} clear it, best is <strong>{hoTop.bat.n}</strong> at {fm(hoTop.hoNpv)}{hoTop.bat.id !== top.bat.id ? " — a different pick than the operator's" : ""}.</>
+                        : <>nothing clears it — this is the normal result at retail prices, and the reason volume buying is the model that works.</>}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead><tr className="text-zinc-400 text-left">
-                          <th className="py-1 pr-2 font-medium">Unit</th><th className="py-1 px-2 font-medium text-right">Cost</th>
-                          <th className="py-1 px-2 font-medium text-right">Yr 1</th><th className="py-1 px-2 font-medium text-right">NPV</th>
-                          <th className="py-1 px-2 font-medium text-right">Payback</th><th className="py-1 pl-2 font-medium">Limited by</th>
+                          <th className="py-1 pr-2 font-medium">Unit</th>
+                          <th className="py-1 px-2 font-medium text-right">Op cost</th>
+                          <th className="py-1 px-2 font-medium text-right">Op NPV</th>
+                          <th className="py-1 px-2 font-medium text-right">Op payback</th>
+                          <th className="py-1 px-2 font-medium text-right">Ho NPV</th>
+                          <th className="py-1 px-2 font-medium text-right">Ho payback</th>
+                          <th className="py-1 pl-2 font-medium">Limited by</th>
                         </tr></thead>
                         <tbody>
                           {ranking.map((r, i) => (
@@ -506,11 +528,13 @@ export default function Dashboard() {
                                 <span className="text-zinc-400 mr-1.5">{i + 1}</span>
                                 <span className="font-medium text-zinc-800 dark:text-zinc-200">{r.bat.n}</span>
                                 {r.eolYear && <span className="ml-1.5 text-[10px] text-red-500">replace y{r.eolYear}</span>}
+                                {r.bat.id === hoTop.bat.id && r.bat.id !== top.bat.id && <span className="ml-1.5 text-[10px] text-blue-500">★ homeowner's pick</span>}
                               </td>
-                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{fm(r.cost)}</td>
-                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{fm(r.yr1)}</td>
-                              <td className={`py-1.5 px-2 text-right font-data font-medium ${r.npv > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.npv)}</td>
-                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{r.payback === Infinity ? "—" : r.payback.toFixed(1)}</td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{fm(r.opCost)}</td>
+                              <td className={`py-1.5 px-2 text-right font-data font-medium ${r.opNpv > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.opNpv)}</td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{r.opPayback === Infinity ? "—" : r.opPayback.toFixed(1)}</td>
+                              <td className={`py-1.5 px-2 text-right font-data font-medium ${r.hoNpv > 0 ? "text-green-600" : "text-red-500"}`}>{fp(r.hoNpv)}</td>
+                              <td className="py-1.5 px-2 text-right font-data text-zinc-500">{r.hoPayback === Infinity ? "—" : r.hoPayback.toFixed(1)}</td>
                               <td className="py-1.5 pl-2 text-zinc-400">{BIND_TEXT[r.binding][0]}</td>
                             </tr>
                           ))}
