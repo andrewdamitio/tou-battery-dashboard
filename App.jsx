@@ -1075,20 +1075,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {bizModel === "split" && (
-              <div className="mb-5">
-                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Settlement basis</p>
-                <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-2">
-                  <Note>
-                    Billed on metered discharge × <strong>{effDeemed}¢/kWh</strong> — this configuration's actual whole-year
-                    average value per kWh (total savings ÷ total kWh discharged, rounded to a clean cent), not a modeled
-                    "what would your bill have been without the battery" the customer has no way to independently check.
-                    Auditable against the meter and the published rate; there's nothing here to tune.
-                  </Note>
-                </div>
-              </div>
-            )}
-
             <div className="mb-5">
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Operator costs and capital</p>
               <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
