@@ -490,16 +490,6 @@ export default function Dashboard() {
 
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Household load</p>
-            <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
-              <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={loadInputMode === "appliances" ? `always-on ${baselineKw(sq).toFixed(2)} kW` : undefined} />
-              <Note>
-                Plugged into a wall outlet, the unit backfeeds the home's shared wiring the same way balcony solar does —
-                power injected anywhere behind the meter offsets demand anywhere else on that panel, not just what's on the
-                same circuit. So the always-on baseline (fridge, networking, standby) is fully reachable regardless of which
-                outlet the unit is plugged into: 100%, not a slider. This assumes export-to-home is treated as legal and
-                permitted, which is the premise the business runs on — it is not the case everywhere today.
-              </Note>
-            </div>
 
             <div className="flex gap-1 mb-2">
               {[["appliances", "Enter appliances"], ["calibrate", "Calibrate to actual usage"]].map(([id, lbl]) => (
@@ -507,11 +497,25 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {loadInputMode === "appliances" && (
+              <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg mb-2 space-y-3">
+                <Slider label="House size" value={sq} onChange={setSq} min={400} max={3500} step={50} fmt={(v) => v.toLocaleString() + " sq ft"} hint={`always-on ${baselineKw(sq).toFixed(2)} kW`} />
+                <Note>
+                  Plugged into a wall outlet, the unit backfeeds the home's shared wiring the same way balcony solar does —
+                  power injected anywhere behind the meter offsets demand anywhere else on that panel, not just what's on the
+                  same circuit. So the always-on baseline (fridge, networking, standby) is fully reachable regardless of which
+                  outlet the unit is plugged into: 100%, not a slider. This assumes export-to-home is treated as legal and
+                  permitted, which is the premise the business runs on — it is not the case everywhere today.
+                </Note>
+              </div>
+            )}
+
             {loadInputMode === "calibrate" && (
               <div className="mb-2"><Note>
-                Still using your currently configured appliance mix to determine the hourly shape and what's reachable by a
-                plug-in battery (hardwired loads stay excluded either way) — switch to "Enter appliances" to change that. What
-                changes here is the magnitude: real kWh from a utility bill instead of an appliance-based guess.
+                Still using your currently configured house size and appliance mix to determine the hourly shape and what's
+                reachable by a plug-in battery (hardwired loads stay excluded either way) — switch to "Enter appliances" to
+                change either one. What changes here is the magnitude: real kWh from a utility bill instead of an
+                appliance-based guess.
               </Note></div>
             )}
 
