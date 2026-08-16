@@ -877,9 +877,10 @@ export default function Dashboard() {
                 <Slider label="Annual churn" value={churn} onChange={setChurn} min={0} max={30} fmt={(v) => v + "%"} />
                 <Slider label="Discount rate" value={discount} onChange={setDiscount} min={4} max={25} fmt={(v) => v + "%"} hint="cost of capital" />
                 <Note>
-                  No ITC is modeled on hardware. OBBBA terminated §25D for expenditures after 2025, and whether a cord-connected
-                  portable power station would even qualify as "energy storage technology" under §48E was never resolved before
-                  that door closed. Underwrite this business on unit economics that stand without a credit that isn't coming back.
+                  Moving this won't touch Unit IRR — IRR is the break-even rate for these cash flows, computed independent of
+                  any assumed discount rate, so it's fixed once hardware cost and the offer terms are set. What this slider
+                  actually moves: <strong>NPV</strong> ({fm(op.opNPV)} above) and the pass/fail verdict, since "clears" means
+                  the fixed IRR beats whatever hurdle you set here.
                 </Note>
               </div>
             </div>
