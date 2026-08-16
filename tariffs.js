@@ -386,7 +386,7 @@ export const DR_PROGRAMS = [
     note: "PGE OR / BGE MD / Consumers MI / Delmarva DE / ComEd IL. $1.00–$1.25/kWh vs a 10-similar-day weather-adjusted baseline. Meter-based, device-agnostic." },
   { id: "cpp", n: "CPP / CPP overlay", basis: "avoidance", rate: null, events: null, hoursPerEvent: null, st: null,
     note: "50–80¢/kWh adder during called events; the battery avoids it by serving load. Bill avoidance, not a rebate, so no baseline to erode. Rate and event count come from the selected tariff." },
-  { id: "cpk", n: "PJM capacity tag (5CP)", basis: "indirect", rate: null, events: 5, hoursPerEvent: 1, st: ["IL", "MD", "VA", "NY", "MA", "DE"],
+  { id: "cpk", n: "PJM capacity tag (5CP)", basis: "indirect", rate: null, events: 5, hoursPerEvent: 1, st: ["IL", "MD", "VA", "DE"],
     note: "Capacity cleared at the FERC cap for 2026/27 and 2027/28. Residential value is embedded in supply rates and generally needs a passthrough tariff (e.g. ComEd Hourly / Rate BESH) to reach the customer." },
   { id: "whl", n: "Wholesale aggregation (Order 2222)", basis: "indirect", rate: null, events: null, hoursPerEvent: null, st: ["CA", "NY"],
     note: "CAISO live Nov 2024, NYISO Apr 2024; PJM delayed to Feb 2028, MISO 2027–29. Load-reduction-only DERs join as Proxy Demand Resources through aggregators. Revenue share is negotiated, not published." },

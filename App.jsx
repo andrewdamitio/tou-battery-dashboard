@@ -66,7 +66,10 @@ export default function Dashboard() {
 
   // --- consumer inputs
   const [planId, setPlanId] = useState("sdr");
-  const [custom, setCustom] = useState({ rPeakS: 30, rOffS: 10, rPeakW: 25, rOffW: 10, peakStart: 16, peakEnd: 21, fixed: 0, weekdayOnly: false });
+  const [custom, setCustom] = useState({
+    rPeakS: 30, rOffS: 10, rPeakW: 25, rOffW: 10, peakStart: 16, peakEnd: 21, fixed: 0, weekdayOnly: false,
+    cppOn: false, cppName: "Custom CPP", cppAdder: 50, cppEvMin: 1, cppEvMax: 18, cppEvDefault: 12,
+  });
   const [sq, setSq] = useState(1600);
   const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
   const [batId, setBatId] = useState("al");
@@ -116,6 +119,10 @@ export default function Dashboard() {
       s: { ...p.s, peak, rPeak: custom.rPeakS, rOff: custom.rOffS, partial: null, superOff: null },
       w: { ...p.w, peak, rPeak: custom.rPeakW, rOff: custom.rOffW, partial: null, superOff: null },
       phLabel: `${custom.peakStart}:00–${custom.peakEnd}:00 ${custom.weekdayOnly ? "weekdays" : "daily"}`,
+      cpp: custom.cppOn ? {
+        n: custom.cppName || "Custom CPP", adder: custom.cppAdder,
+        ev: custom.cppEvDefault, mn: custom.cppEvMin, mx: custom.cppEvMax, src: "user-defined",
+      } : undefined,
     };
   }, [planId, custom]);
 
@@ -352,6 +359,43 @@ export default function Dashboard() {
                 <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 self-end pb-2">
                   <input type="checkbox" checked={custom.weekdayOnly} onChange={(e) => setCustom((p) => ({ ...p, weekdayOnly: e.target.checked }))} className="w-4 h-4" />Weekdays only
                 </label>
+              </div>
+            )}
+            {plan.custom && (
+              <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                <label className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-2">
+                  <input type="checkbox" checked={custom.cppOn} onChange={(e) => setCustom((p) => ({ ...p, cppOn: e.target.checked }))} className="w-4 h-4" />
+                  Add a CPP overlay
+                </label>
+                {custom.cppOn && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="flex flex-col gap-1 col-span-2 md:col-span-1">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Overlay name</label>
+                      <input type="text" value={custom.cppName} onChange={(e) => setCustom((p) => ({ ...p, cppName: e.target.value }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Adder ¢/kWh</label>
+                      <input type="number" value={custom.cppAdder} onChange={(e) => setCustom((p) => ({ ...p, cppAdder: +e.target.value || 0 }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Min events/yr</label>
+                      <input type="number" min={1} value={custom.cppEvMin} onChange={(e) => setCustom((p) => ({ ...p, cppEvMin: Math.max(1, +e.target.value || 1) }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Max events/yr</label>
+                      <input type="number" min={custom.cppEvMin} value={custom.cppEvMax} onChange={(e) => setCustom((p) => ({ ...p, cppEvMax: Math.max(p.cppEvMin, +e.target.value || p.cppEvMin) }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Default events/yr</label>
+                      <input type="number" min={custom.cppEvMin} max={custom.cppEvMax} value={custom.cppEvDefault} onChange={(e) => setCustom((p) => ({ ...p, cppEvDefault: Math.min(p.cppEvMax, Math.max(p.cppEvMin, +e.target.value || p.cppEvMin)) }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                  Adds a CPP row to the DR stack tab exactly like a real tariff's overlay: on the events you set, the peak
+                  price jumps by the adder above, and a battery serving load through the event avoids it. Bill avoidance,
+                  not a rebate — no baseline to erode, and it stacks cleanly with daily TOU shaving.
+                </p>
               </div>
             )}
           </div>
