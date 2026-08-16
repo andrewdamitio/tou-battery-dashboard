@@ -10,7 +10,7 @@ import {
 import {
   annualArbitrage, drRevenue, projectAsset, operatorEconomics, fleetEconomics,
   billComparison, rateShapeForMonth, chargeWindow, servabilityFailure, rankBatteries,
-  USABLE_SOC, RTE, paybackYear,
+  loadShapeForMonth, dayCounts, USABLE_SOC, RTE, paybackYear,
 } from "./model.js";
 
 const LIFE = 10;
@@ -72,6 +72,7 @@ export default function Dashboard() {
   });
   const [sq, setSq] = useState(1600);
   const [counts, setCounts] = useState({ wac: 2, xfr: 1, tv: 1, dw: 1 });
+  const [monthlyActual, setMonthlyActual] = useState({});
   const [batId, setBatId] = useState("al");
   const [evTimer, setEvTimer] = useState(false);
   const [ranking, setRanking] = useState(null);
@@ -139,6 +140,16 @@ export default function Dashboard() {
             : { e1: { prof: "evNoTimer" }, e2: { prof: "evNoTimer" } }
   ), [evTimer]);
 
+  // What the appliance list alone implies for each month's total usage --
+  // shown as a reference/placeholder next to the optional "actual usage"
+  // override below, before any calibration is applied.
+  const impliedMonthlyKwh = useMemo(() => (
+    MONTHS.map((_, m) => {
+      const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides });
+      return ls.total.reduce((s, v) => s + v, 0) * dayCounts(m).total;
+    })
+  ), [counts, sq, plan, bat, applianceOverrides]);
+
   // -------------------------------------------------------------------------
   // MODEL
   // -------------------------------------------------------------------------
@@ -177,15 +188,15 @@ export default function Dashboard() {
   // No baseline-basis programs either: those require an aggregator/operator
   // relationship this buyer doesn't have.
   const custArb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays: 0, cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1 }),
-    [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents]
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays: 0, cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1, monthlyActual }),
+    [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents, monthlyActual]
   );
 
   const custAssetRows = useMemo(() => projectAsset({
     plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays: 0,
-    cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1,
+    cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1, monthlyActual,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents]);
+  }), [plan, bat, counts, sq, applianceOverrides, custCppActive, custCppEvents, monthlyActual]);
 
   // Customer buying outright at full retail, TOU savings (including any CPP
   // overlay enrolled above) only -- no operator, no split, no DR revenue.
@@ -204,7 +215,7 @@ export default function Dashboard() {
 
   const eolYear = custAssetRows.findIndex((r) => r.cumCycles > bat.cyc) + 1;
 
-  const bills = useMemo(() => billComparison({ plan, arb: custArb, counts, sq, bat, applianceOverrides }), [plan, custArb, counts, sq, bat, applianceOverrides]);
+  const bills = useMemo(() => billComparison({ plan, arb: custArb, counts, sq, bat, applianceOverrides, monthlyActual }), [plan, custArb, counts, sq, bat, applianceOverrides, monthlyActual]);
 
   // 24-hour dispatch series for the selected month (Customer bill tab)
   const daySeries = useMemo(() => {
@@ -238,8 +249,8 @@ export default function Dashboard() {
   // standalone-buyer figures above -----------------------------------------
 
   const opArb = useMemo(
-    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100 }),
-    [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess]
+    () => annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100, monthlyActual }),
+    [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess, monthlyActual]
   );
 
   const dr = useMemo(
@@ -248,10 +259,10 @@ export default function Dashboard() {
   );
 
   const opAssetRows = useMemo(() => projectAsset({
-    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+    plan, bat, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100, monthlyActual,
     drFn: (a, capFrac) => drRevenue({ plan, bat, arb: a, enabled: drEnabled, preserve, dispatchSuccess: dispatchSuccess / 100, overrides: drOverrides, programs: DR_PROGRAMS, capFrac }).total,
     hwCostFn: () => bat.c,
-  }), [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess, drEnabled, drOverrides]);
+  }), [plan, bat, counts, sq, applianceOverrides, eventDays, opCppActive, cppEvents, dispatchSuccess, drEnabled, drOverrides, monthlyActual]);
 
   // Deemed billing rate: the actual whole-year average value per kWh
   // discharged, rounded to a clean cent — a real weighted blend of every
@@ -285,7 +296,7 @@ export default function Dashboard() {
     const hoRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays: 0, discount,
       hwPct: 100, drFn: null,
-      cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1,
+      cppOn: custCppActive, cppEvents: custCppEvents, dispatchSuccess: 1, monthlyActual,
     });
     const opRank = rankBatteries({
       plan, batteries: BATTERIES, counts, sq, applianceOverrides, years: LIFE, preserve, eventDays, discount,
@@ -295,7 +306,7 @@ export default function Dashboard() {
         overrides: drOverrides, programs: DR_PROGRAMS, capFrac,
       }).total,
       opTerms: { cac, svcMo, churn, bizModel, subFee, splitPct, upfront },
-      cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100,
+      cppOn: opCppActive, cppEvents, dispatchSuccess: dispatchSuccess / 100, monthlyActual,
     });
     const hoById = Object.fromEntries(hoRank.map((r) => [r.bat.id, r]));
 
@@ -466,6 +477,43 @@ export default function Dashboard() {
                 permitted, which is the premise the business runs on — it is not the case everywhere today.
               </Note>
             </div>
+
+            <div className="mb-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1">Calibrate to actual usage (optional)</p>
+              <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+                The appliance list below sets the hourly shape — what's servable by a plug-in battery, and when. If you have a
+                utility bill handy, enter that month's real total kWh here to rescale the estimate to match it exactly, with the
+                same hour-by-hour proportions kept intact. Leave a month blank to use the appliance estimate as-is.
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                {MONTHS.map((m, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400">{m}</label>
+                    <input
+                      type="number" min={0} step={10}
+                      value={monthlyActual[i] ?? ""}
+                      placeholder={Math.round(impliedMonthlyKwh[i])}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMonthlyActual((p) => {
+                          const next = { ...p };
+                          if (v === "") delete next[i]; else next[i] = Math.max(0, +v || 0);
+                          return next;
+                        });
+                      }}
+                      className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900"
+                    />
+                  </div>
+                ))}
+              </div>
+              {Object.keys(monthlyActual).length > 0 && (
+                <p className="text-xs text-zinc-400 mt-2">
+                  {Object.keys(monthlyActual).length} of 12 months calibrated to your entered totals; the rest use the appliance
+                  estimate (shown as placeholders above).
+                </p>
+              )}
+            </div>
+
             {APPLIANCE_CATS.map((cat, ci) => {
               const active = cat.i.reduce((s, a) => s + (counts[a.id] || 0), 0);
               const open = !collapsed[ci];

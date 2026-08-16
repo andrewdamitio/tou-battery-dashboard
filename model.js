@@ -59,10 +59,14 @@ export function chargeWindow(rateArr) {
 // --- load shape ------------------------------------------------------------
 
 /**
+ * @param opts.actualKwh optional real monthly total (e.g. from a utility bill).
+ *   When given, the appliance-implied shape is rescaled so its monthly total
+ *   matches exactly, while keeping the same hour-by-hour proportions -- real
+ *   totals, still a shape a battery can be dispatched against.
  * @returns {{ total: number[24], addressable: number[24], blocked: object[] }}
  * `addressable` is the subset a given battery can physically serve.
  */
-export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverrides = {} }) {
+export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverrides = {}, actualKwh = null }) {
   const isSummer = plan.summerMonths.includes(month);
   const total = Array(24).fill(0);
   const addressable = Array(24).fill(0);
@@ -102,6 +106,15 @@ export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverr
     if (reason) blocked.push({ id, n: a.n, reason, kwRun, surge });
     else servedNames.push(a.n);
   });
+
+  if (actualKwh != null) {
+    const dailyTotal = total.reduce((s, v) => s + v, 0);
+    const impliedMonthly = dailyTotal * dayCounts(month).total;
+    if (impliedMonthly > 0) {
+      const scale = actualKwh / impliedMonthly;
+      for (let h = 0; h < 24; h++) { total[h] *= scale; addressable[h] *= scale; }
+    }
+  }
 
   return { total, addressable, blocked, servedNames, isSummer };
 }
@@ -183,7 +196,7 @@ function peakUnserved(rateArr, loadArr, d, marginal) {
  *                    counted as bill savings here, not as third-party DR revenue
  * @param opts.dispatchSuccess 0..1 share of CPP events the battery actually covers
  */
-export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
+export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve = 0, eventDays = 0, applianceOverrides, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
   const months = [];
   let usd = 0, kwh = 0, cycles = 0, anyChargeLimited = false, anyPowerLimited = false;
   const bind = { energy: 0, power: 0, charge: 0, load: 0 };
@@ -192,7 +205,7 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
 
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null });
     const dc = dayCounts(m);
 
     const run = (rateArr, nDays) => {
@@ -276,11 +289,11 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
 // --- what the customer's bill actually does --------------------------------
 
 /** Monthly bill with and without the battery, including fixed charges. */
-export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides }) {
+export function billComparison({ plan, arb, counts, sq, bat, applianceOverrides, monthlyActual = null }) {
   const rows = [];
   for (let m = 0; m < 12; m++) {
     const rs = rateShapeForMonth(plan, m);
-    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides });
+    const ls = loadShapeForMonth({ counts, sq, month: m, plan, bat, applianceOverrides, actualKwh: monthlyActual?.[m] ?? null });
     const dc = dayCounts(m);
     const dayCost = (rateArr) => ls.total.reduce((s, kwh, h) => s + kwh * rateArr[h], 0) / 100;
     const without = dayCost(rs.weekday) * dc.weekday + dayCost(rs.weekend) * dc.weekend + plan.fixed;
@@ -341,13 +354,13 @@ export function drRevenue({ plan, bat, arb, enabled, preserve, dispatchSuccess, 
  * past rated cycles the unit is replaced (or retired), which the caller sees
  * as a `replacement` flag on that year.
  */
-export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
+export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays, drFn, replaceOnEOL = true, hwCostFn, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
   const rows = [];
   let cumCycles = 0;
 
   for (let y = 1; y <= years; y++) {
     const capFrac = Math.max(0.5, 1 - FADE_AT_RATED * (cumCycles / bat.cyc));
-    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays, cppOn, cppEvents, dispatchSuccess });
+    const arb = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, capFrac, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual });
     cumCycles += arb.cycles;
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
@@ -505,16 +518,16 @@ export function fleetEconomics({ unitOpFlows, perMonth, rampMonths, horizonYears
  * volume discount and keeping DR revenue optimizes something different. Callers
  * that want the operator's pick should pass `hwPct` and `drFn`.
  */
-export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms, cppOn = false, cppEvents = null, dispatchSuccess = 1 }) {
+export function rankBatteries({ plan, batteries, counts, sq, applianceOverrides, years, preserve, eventDays, discount, hwPct = 100, drFn, opTerms, cppOn = false, cppEvents = null, dispatchSuccess = 1, monthlyActual = null }) {
   const rows = batteries.map((bat) => {
     const proj = projectAsset({
       plan, bat, counts, sq, applianceOverrides, years, preserve, eventDays,
       drFn: drFn ? (a, capFrac) => drFn(bat, a, capFrac) : null,
       hwCostFn: () => bat.c * (hwPct / 100),
-      cppOn, cppEvents, dispatchSuccess,
+      cppOn, cppEvents, dispatchSuccess, monthlyActual,
     });
     const cost = bat.c * (hwPct / 100);
-    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess });
+    const arb1 = annualArbitrage({ plan, bat, counts, sq, applianceOverrides, preserve, eventDays, cppOn, cppEvents, dispatchSuccess, monthlyActual });
 
     let flows, yr1;
     if (opTerms) {
