@@ -135,11 +135,39 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         capacity, transmission, energy, and scarcity exposure. Note which one is large.
       </Note></div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <Metric label="Margin uplift / customer" value={fm(econ.total)} sub="per year, before sharing" positive={econ.total > 60} />
-        <Metric label="Firm keeps" value={fm(biz.keepFirm)} sub={`customer gets ${fm(biz.shareCustomer)}`} />
-        <Metric label="CAC payback" value={biz.paybackMo ? Math.round(biz.paybackMo) + " mo" : "Never"} positive={!!biz.paybackMo && biz.paybackMo < 36} />
-        <Metric label="LTV / CAC" value={biz.ltvCac === Infinity ? "∞" : biz.ltvCac.toFixed(1) + "×"} sub={`at ${churnPct}% churn`} positive={biz.ltvCac >= 3} />
+      {/* ---------------- market & methodology: chosen first, everything below reacts to it ---------------- */}
+      <div className="mb-5">
+        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Market</p>
+        <select value={marketId} onChange={(e) => { setMarketId(e.target.value); setCapPrice(null); setTransRate(null); setRetailRate(null); setScarcityHrs(null); setPlcMethod(MARKETS.find((m) => m.id === e.target.value).plcDefault); }}
+          className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
+          {MARKETS.map((m) => <option key={m.id} value={m.id}>{m.n} — {CAP_CONSTRUCTS[m.capConstruct].n}</option>)}
+        </select>
+        <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
+          <Row label="Capacity construct" value={CAP_CONSTRUCTS[market.capConstruct].n} />
+          <Row label="Transmission allocation" value={market.transAlloc === "delivery" ? "Regulated delivery — out of reach" : "Varies by state — verify"} />
+          <Row label="Customer PLC (no battery)" value={`${econ.tag.plc.toFixed(2)} kW`} hint="grossed up" />
+          <Row label="PLC reduction achieved" value={`${econ.dPlc.toFixed(2)} kW`} />
+          <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{market.note}</p>
+        </div>
+      </div>
+
+      <div className="mb-5">
+        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">PLC methodology — the gate</p>
+        <div className="grid grid-cols-2 gap-2">
+          {[["interval", "Interval-derived", "Tag comes from the account's actual hourly meter data. Battery discharge during CP hours is visible to the calculation and the tag falls."],
+            ["profile", "Class load profile", "Tag comes from a class-average shape scaled by monthly kWh. The account's real peak-hour behavior never enters the formula. The battery is invisible."]].map(([id, t, d]) => (
+            <button key={id} onClick={() => setPlcMethod(id)}
+              className={`p-3 rounded-lg border text-xs leading-relaxed text-left transition-colors ${plcMethod === id ? (id === "profile" ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20" : "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20") : "border-zinc-200 dark:border-zinc-700"}`}>
+              <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 mb-1">{t}</div>
+              <p className="text-zinc-500 dark:text-zinc-400">{d}</p>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-400 mt-2">
+          Check the EDC's load-profiling manual or its supplier-facing EDI enrollment specs — suppliers pull PLC and NSPL per
+          account through that channel specifically so they can price a customer. Some EDCs run hybrids: interval where AMI is
+          deployed, profiles elsewhere. That's the good case, because you can screen at enrollment instead of writing off a state.
+        </p>
       </div>
 
       {gated && (
@@ -164,6 +192,22 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           during Uri.
         </Note></div>
       )}
+
+      {/* ---------------- everything below reacts live to the market & methodology chosen above ---------------- */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <Metric label="Margin uplift / customer" value={fm(econ.total)} sub="per year, before sharing" positive={econ.total > 60} />
+        <Metric label="Firm keeps" value={fm(biz.keepFirm)} sub={`customer gets ${fm(biz.shareCustomer)}`} />
+        <Metric label="CAC payback" value={biz.paybackMo ? Math.round(biz.paybackMo) + " mo" : "Never"} positive={!!biz.paybackMo && biz.paybackMo < 36} />
+        <Metric label="LTV / CAC" value={biz.ltvCac === Infinity ? "∞" : biz.ltvCac.toFixed(1) + "×"} sub={`at ${churnPct}% churn`} positive={biz.ltvCac >= 3} />
+      </div>
+      <div className="mb-4"><Note>
+        <strong>CAC</strong> (customer acquisition cost) is what it costs to sign up one account — the Acquisition cost slider
+        under Sharing and acquisition below. <strong>LTV</strong> (lifetime value) is the net cash a customer generates over
+        their whole tenure before they churn — so LTV/CAC is "how many times over does a customer pay back what it cost to get
+        them." <strong>Churn</strong> is the share of customers who cancel or switch away each year (the Annual churn slider,
+        also below); residential supplier churn tends to run high, and it's what caps LTV even when the per-year margin looks
+        good.
+      </Note></div>
 
       {/* ---------------- value decomposition ---------------- */}
       <div className="mb-6">
@@ -242,48 +286,16 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           </BarChart>
         </ResponsiveContainer>
         <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-          Each market at its own default PLC methodology and published-ish prices. Note that California, Arizona, Florida,
-          Georgia and the Carolinas don't appear at all — they aren't retail choice, so this business cannot operate there.
-          The tariffs that perform best on the Customer bill tab are precisely the ones missing here. These are two different
-          companies, not two products.
+          Unlike the charts above, this one deliberately ignores the PLC methodology toggle and the Prices-and-rates sliders —
+          it's each market at its <em>own</em> default methodology and published-ish prices, so markets are compared on equal,
+          real footing rather than whatever override happens to be dialed in for the one you're currently editing. Note that
+          California, Arizona, Florida, Georgia and the Carolinas don't appear at all — they aren't retail choice, so this
+          business cannot operate there. The tariffs that perform best on the Customer bill tab are precisely the ones missing
+          here. These are two different companies, not two products.
         </p>
       </div>
 
-      {/* ---------------- inputs ---------------- */}
-      <div className="mb-5">
-        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Market</p>
-        <select value={marketId} onChange={(e) => { setMarketId(e.target.value); setCapPrice(null); setTransRate(null); setRetailRate(null); setScarcityHrs(null); setPlcMethod(MARKETS.find((m) => m.id === e.target.value).plcDefault); }}
-          className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
-          {MARKETS.map((m) => <option key={m.id} value={m.id}>{m.n} — {CAP_CONSTRUCTS[m.capConstruct].n}</option>)}
-        </select>
-        <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
-          <Row label="Capacity construct" value={CAP_CONSTRUCTS[market.capConstruct].n} />
-          <Row label="Transmission allocation" value={market.transAlloc === "delivery" ? "Regulated delivery — out of reach" : "Varies by state — verify"} />
-          <Row label="Customer PLC (no battery)" value={`${econ.tag.plc.toFixed(2)} kW`} hint="grossed up" />
-          <Row label="PLC reduction achieved" value={`${econ.dPlc.toFixed(2)} kW`} />
-          <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{market.note}</p>
-        </div>
-      </div>
-
-      <div className="mb-5">
-        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">PLC methodology — the gate</p>
-        <div className="grid grid-cols-2 gap-2">
-          {[["interval", "Interval-derived", "Tag comes from the account's actual hourly meter data. Battery discharge during CP hours is visible to the calculation and the tag falls."],
-            ["profile", "Class load profile", "Tag comes from a class-average shape scaled by monthly kWh. The account's real peak-hour behavior never enters the formula. The battery is invisible."]].map(([id, t, d]) => (
-            <button key={id} onClick={() => setPlcMethod(id)}
-              className={`p-3 rounded-lg border text-xs leading-relaxed text-left transition-colors ${plcMethod === id ? (id === "profile" ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20" : "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20") : "border-zinc-200 dark:border-zinc-700"}`}>
-              <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 mb-1">{t}</div>
-              <p className="text-zinc-500 dark:text-zinc-400">{d}</p>
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-zinc-400 mt-2">
-          Check the EDC's load-profiling manual or its supplier-facing EDI enrollment specs — suppliers pull PLC and NSPL per
-          account through that channel specifically so they can price a customer. Some EDCs run hybrids: interval where AMI is
-          deployed, profiles elsewhere. That's the good case, because you can screen at enrollment instead of writing off a state.
-        </p>
-      </div>
-
+      {/* ---------------- remaining inputs ---------------- */}
       <div className="mb-5">
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Prices and rates</p>
         <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg space-y-3">
