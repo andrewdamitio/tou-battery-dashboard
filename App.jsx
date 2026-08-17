@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
   Legend, BarChart, Bar, ComposedChart, Area, Cell,
 } from "recharts";
+import RetailChoiceTab from "./RetailChoiceTab.jsx";
 import {
   PLANS, BATTERIES, BAT_CLASSES, APPLIANCE_CATS, ALL_APPLIANCES, MONTHS,
   DR_PROGRAMS, HARDWIRED_ONLY, baselineKw,
@@ -370,6 +371,7 @@ export default function Dashboard() {
     { id: "model", label: "Customer bill" },
     { id: "operator", label: "Operator economics" },
     { id: "fleet", label: "Fleet & funding" },
+    { id: "retail", label: "Retail choice model" },
     { id: "programs", label: "Program reference" },
   ];
 
@@ -1195,6 +1197,10 @@ export default function Dashboard() {
       )}
 
       {/* ================================================================= */}
+      {tab === "retail" && (
+        <RetailChoiceTab counts={counts} sq={sq} bat={bat} applianceOverrides={applianceOverrides} monthlyActual={activeMonthlyActual} />
+      )}
+
       {tab === "programs" && (
         <div>
           <div className="mb-5"><Note>
