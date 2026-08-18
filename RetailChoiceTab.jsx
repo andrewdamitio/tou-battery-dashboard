@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, ReferenceLine, ComposedChart, Cell,
+  LineChart, Line, ReferenceLine,
 } from "recharts";
 import {
   MARKETS, CAP_CONSTRUCTS, annualLoadShape, supplierEconomics, supplierBusiness,
@@ -96,18 +96,6 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
     lagYears: 1, termContract,
   }), [econ, sharePct, cac, softwareMo, churnPct, termContract]);
 
-  // value vs CP capture — the curve that decides the business
-  const captureCurve = useMemo(() => {
-    const out = [];
-    for (let f = 20; f <= 100; f += 10) {
-      const e = supplierEconomics({ ...econArgs, forecastHit: f });
-      out.push({ hit: f, capacity: Math.round(e.capacitySaving), transmission: Math.round(e.transSaving), other: Math.round(e.energySaving + e.scarcitySaving), total: Math.round(e.total) });
-    }
-    return out;
-  }, [marketId, plcMethod, capP, transR, transSupplierBorne, availability, socReady, retailR, scarcityH, includeScarcity, loadShape, bat]);
-
-  // which of the curve's 10%-step bars is closest to the actual slider value
-  const nearestHitIdx = Math.min(8, Math.max(0, Math.round((forecastHit - 20) / 10)));
 
   const marketCompare = useMemo(() => MARKETS.map((m) => {
     const e = supplierEconomics({
@@ -245,41 +233,27 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         </p>
       </div>
 
-      {/* ---------------- the capture curve ---------------- */}
+      {/* ---------------- capture, as live numbers off the Dispatch reliability sliders ---------------- */}
       <div className="mb-6">
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-          Value against coincident-peak forecasting accuracy
+          Value against coincident-peak capture
         </p>
-        <ResponsiveContainer width="100%" height={230}>
-          <ComposedChart data={captureCurve} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-            <XAxis dataKey="hit" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"}
-              label={{ value: "share of CP hours correctly forecast", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
-              label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
-            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity">
-              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
-            </Bar>
-            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission">
-              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
-            </Bar>
-            <Bar dataKey="other" stackId="s" fill={COLORS.energy} name="Energy + scarcity">
-              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
-            </Bar>
-            <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Total" />
-          </ComposedChart>
-        </ResponsiveContainer>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+          <Metric label="CP forecast accuracy" value={forecastHit + "%"} sub="Dispatch reliability slider" />
+          <Metric label="Device online" value={availability + "%"} sub="Dispatch reliability slider" />
+          <Metric label="Charged when called" value={socReady + "%"} sub="Dispatch reliability slider" />
+          <Metric label="Effective capture" value={(econ.cap.p * 100).toFixed(0) + "%"} sub="product of the three" positive={econ.cap.p >= 0.5} />
+        </div>
         <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm mt-1">
-          <Row label={`Total at your current ${forecastHit}% forecast accuracy`} value={fm(econ.total)} hint="highlighted bar above" />
+          <Row label="Capacity + transmission value at this capture" value={fm(econ.capacitySaving + econ.transSaving)} />
+          <Row label="P10 / P90 capture" value={`${(econ.cap.p10 * 100).toFixed(0)}% / ${(econ.cap.p90 * 100).toFixed(0)}%`} hint={cliff ? "wide — single-hour cliff" : `narrows across ${construct.hours} hours`} />
         </div>
         <div className="mt-1"><Note tone={cliff ? "amber" : "zinc"}>
           <strong>{construct.n}.</strong> {construct.desc}
           <br /><br />
-          Effective capture here is {(econ.cap.p * 100).toFixed(0)}% — forecast accuracy × device availability × charged-and-ready.
           {cliff
-            ? ` Because the tag rests on a single hour, the spread around that is wide (P10 ${(econ.cap.p10 * 100).toFixed(0)}%, P90 ${(econ.cap.p90 * 100).toFixed(0)}%). Two markets with identical expected value are not the same bet when one of them is a coin flip on one hour.`
-            : ` Averaging across ${construct.hours} hours narrows the spread to P10 ${(econ.cap.p10 * 100).toFixed(0)}% / P90 ${(econ.cap.p90 * 100).toFixed(0)}%, which is the main argument for entering PJM before NYISO.`}
+            ? `Because the tag rests on a single hour, the P10/P90 spread above is wide. Two markets with identical expected value are not the same bet when one of them is a coin flip on one hour.`
+            : `Averaging across ${construct.hours} hours narrows the P10/P90 spread above, which is the main argument for entering PJM before NYISO.`}
           <br /><br />
           You dispatch on forecast, not on schedule — so catching {construct.hours} real CP{construct.hours > 1 ? "s" : ""} means
           calling {candidateDays} candidate days. That's {candidateDays} cycles spent for {construct.hours} hours of value, and
