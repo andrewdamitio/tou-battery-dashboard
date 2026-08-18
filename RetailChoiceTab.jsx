@@ -106,6 +106,9 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
     return out;
   }, [marketId, plcMethod, capP, transR, transSupplierBorne, availability, socReady, retailR, scarcityH, includeScarcity, loadShape, bat]);
 
+  // which of the curve's 10%-step bars is closest to the actual slider value
+  const nearestHitIdx = Math.min(8, Math.max(0, Math.round((forecastHit - 20) / 10)));
+
   const marketCompare = useMemo(() => MARKETS.map((m) => {
     const e = supplierEconomics({
       ...econArgs, market: m, capPrice: m.capPrice, transRate: m.transRate,
@@ -228,6 +231,9 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             <Row key={c.k} label={c.n} value={fm(c.v)} hint={econ.total !== 0 ? `${Math.round(100 * c.v / econ.total)}%` : ""} />
           ))}
           <div className="border-t border-zinc-200 dark:border-zinc-700 mt-1 pt-1">
+            <Row label="Total" value={fm(econ.total)} hint="100%" />
+          </div>
+          <div className="border-t border-zinc-200 dark:border-zinc-700 mt-1 pt-1">
             <Row label="Energy delivered to earn it" value={`${Math.round(econ.shiftedKwh)} kWh/yr shifted`} />
             <Row label="Implied value per kWh" value={econ.shiftedKwh > 0 ? `$${(econ.total / econ.shiftedKwh).toFixed(2)}/kWh` : "—"} hint="vs ~$0.04 wholesale spread" />
           </div>
@@ -252,12 +258,21 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
               label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
             <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
-            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission" />
-            <Bar dataKey="other" stackId="s" fill={COLORS.energy} name="Energy + scarcity" />
+            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity">
+              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
+            </Bar>
+            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission">
+              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
+            </Bar>
+            <Bar dataKey="other" stackId="s" fill={COLORS.energy} name="Energy + scarcity">
+              {captureCurve.map((_, i) => <Cell key={i} fillOpacity={i === nearestHitIdx ? 1 : 0.35} />)}
+            </Bar>
             <Line type="monotone" dataKey="total" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} name="Total" />
           </ComposedChart>
         </ResponsiveContainer>
+        <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm mt-1">
+          <Row label={`Total at your current ${forecastHit}% forecast accuracy`} value={fm(econ.total)} hint="highlighted bar above" />
+        </div>
         <div className="mt-1"><Note tone={cliff ? "amber" : "zinc"}>
           <strong>{construct.n}.</strong> {construct.desc}
           <br /><br />
@@ -270,32 +285,6 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           calling {candidateDays} candidate days. That's {candidateDays} cycles spent for {construct.hours} hours of value, and
           it's the same cycle budget daily TOU shaving would compete for at a fraction of the value per cycle.
         </Note></div>
-      </div>
-
-      {/* ---------------- market comparison ---------------- */}
-      <div className="mb-6">
-        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">All retail-choice markets, this household</p>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={marketCompare} margin={{ top: 25, right: 5, left: 15, bottom: 40 }}>
-            <XAxis dataKey="n" tick={{ fontSize: 10, fill: "#888" }} angle={-30} textAnchor="end" interval={0} height={60} />
-            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
-              label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
-            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
-            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission" />
-            <Bar dataKey="scarcity" stackId="s" fill={COLORS.scarcity} name="Scarcity" />
-            <Bar dataKey="energy" stackId="s" fill={COLORS.energy} name="Energy" />
-          </BarChart>
-        </ResponsiveContainer>
-        <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-          Unlike the charts above, this one deliberately ignores the PLC methodology toggle and the Prices-and-rates sliders —
-          it's each market at its <em>own</em> default methodology and published-ish prices, so markets are compared on equal,
-          real footing rather than whatever override happens to be dialed in for the one you're currently editing. Note that
-          California, Arizona, Florida, Georgia and the Carolinas don't appear at all — they aren't retail choice, so this
-          business cannot operate there. The tariffs that perform best on the Customer bill tab are precisely the ones missing
-          here. These are two different companies, not two products.
-        </p>
       </div>
 
       {/* ---------------- remaining inputs ---------------- */}
@@ -337,6 +326,33 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             contract fixes that because you don't own the hardware and there's no SLA.
           </Note>
         </div>
+      </div>
+
+      {/* ---------------- market comparison: placed after the sliders it ignores, not before ---------------- */}
+      <div className="mb-6">
+        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Reference: all retail-choice markets, this household</p>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={marketCompare} margin={{ top: 25, right: 5, left: 15, bottom: 40 }}>
+            <XAxis dataKey="n" tick={{ fontSize: 10, fill: "#888" }} angle={-30} textAnchor="end" interval={0} height={60} />
+            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
+              label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
+            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
+            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission" />
+            <Bar dataKey="scarcity" stackId="s" fill={COLORS.scarcity} name="Scarcity" />
+            <Bar dataKey="energy" stackId="s" fill={COLORS.energy} name="Energy" />
+          </BarChart>
+        </ResponsiveContainer>
+        <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+          This chart sits below Prices and rates and PLC methodology because it ignores both — it's each market at its{" "}
+          <em>own</em> default methodology and published-ish prices, so markets are compared on equal, real footing rather
+          than whatever override happens to be dialed in for the one you're currently editing above. It does still reflect
+          this household's load and the Dispatch reliability sliders just above, which apply the same way regardless of
+          market. Note that California, Arizona, Florida, Georgia and the Carolinas don't appear at all — they aren't retail
+          choice, so this business cannot operate there. The tariffs that perform best on the Customer bill tab are precisely
+          the ones missing here. These are two different companies, not two products.
+        </p>
       </div>
 
       {/* ---------------- business ---------------- */}
