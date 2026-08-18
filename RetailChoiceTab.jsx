@@ -214,7 +214,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Where the value comes from</p>
         <ResponsiveContainer width="100%" height={190}>
           <BarChart data={[{ n: "per customer/yr", ...Object.fromEntries(stack.map((c) => [c.k, Math.round(c.v)])) }]} layout="vertical" margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <XAxis type="number" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+            <XAxis type="number" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
+              label={{ value: "$/yr per customer", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
             <YAxis type="category" dataKey="n" hide />
             <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -247,7 +248,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <ComposedChart data={captureCurve} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
             <XAxis dataKey="hit" tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => v + "%"}
               label={{ value: "share of CP hours correctly forecast", position: "insideBottom", offset: -3, fontSize: 10, fill: "#888" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
+              label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
             <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
@@ -274,9 +276,10 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
       <div className="mb-6">
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">All retail-choice markets, this household</p>
         <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={marketCompare} margin={{ top: 5, right: 5, left: 0, bottom: 40 }}>
+          <BarChart data={marketCompare} margin={{ top: 25, right: 5, left: 15, bottom: 40 }}>
             <XAxis dataKey="n" tick={{ fontSize: 10, fill: "#888" }} angle={-30} textAnchor="end" interval={0} height={60} />
-            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v} />
+            <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
+              label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
             <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
