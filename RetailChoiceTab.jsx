@@ -341,6 +341,11 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             <input type="checkbox" checked={termContract} onChange={(e) => setTermContract(e.target.checked)} className="w-4 h-4" />
             Term contract through the delivery year
           </label>
+          <p className="text-xs text-zinc-400 -mt-2 leading-relaxed">
+            In plain terms: does the customer stay locked in as yours until the delayed capacity credit actually shows up on a
+            bill? If not, a customer who switches suppliers in the meantime hands that already-earned savings to whoever they
+            switch to, for free.
+          </p>
           <Note tone={biz.forfeited > 0.15 * Math.max(1, econ.capacitySaving) ? "amber" : "zinc"}>
             <strong>The revenue arrives a delivery year late.</strong> You shave in summer 2026; the reduced tag applies to the
             delivery year starting June 2027. PLC is an attribute of the <em>account</em>, not of your relationship — so a
