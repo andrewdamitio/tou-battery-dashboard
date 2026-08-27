@@ -342,6 +342,7 @@ export default function Dashboard() {
         hoCost: ho.cost, hoNpv: ho.npv, hoPayback: ho.payback,
       };
     }));
+    if (opRank[0]) setBatId(opRank[0].bat.id); // opRank is sorted by operator NPV -- apply the top pick, not just list it
   };
 
   const BIND_TEXT = {
@@ -679,13 +680,9 @@ export default function Dashboard() {
                 <button onClick={runRanking} className="ml-auto px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">Find best</button>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Ranks by discounted net value over {LIFE} years at your {discount}% rate, against this tariff and this
-                household, computed two ways at once: a <strong>homeowner</strong> buying outright at full retail and keeping
-                everything the battery earns (TOU savings, including your own CPP enrollment above), and an{" "}
-                <strong>operator</strong> paying {hwPct}% of retail and running the exact offer configured on Operator
-                economics — same subscription fee or split, servicing cost, churn, and its own separate CPP enrollment — not a
-                hypothetical where the operator keeps the full arbitrage and DR value. Sorted by operator NPV; a homeowner's
-                own top pick is flagged separately when it differs.
+                Ranks every battery two ways: what a homeowner buying outright would net, and what the operator's actual
+                configured offer would net (not a hypothetical full-capture scenario). Sorted by operator NPV — selects that
+                top pick, and flags the homeowner's own favorite separately if it differs.
               </p>
 
               {ranking && (() => {
