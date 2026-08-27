@@ -700,6 +700,16 @@ export default function Dashboard() {
             })}
           </div>
 
+          {custArb.blocked.length > 0 && (
+            <div className="mb-5"><Note tone="amber">
+              <strong>Not servable by this unit</strong> — excluded from savings:
+              <ul className="mt-1.5 space-y-0.5">
+                {custArb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
+              </ul>
+              <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
+            </Note></div>
+          )}
+
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Battery</p>
             <select value={batId} onChange={(e) => setBatId(e.target.value)} className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
@@ -836,16 +846,6 @@ export default function Dashboard() {
               At {Math.round(custArb.cycles)} equivalent full cycles a year, this unit passes its rated {bat.cyc.toLocaleString()}-cycle
               life in <strong>year {eolYear}</strong>. The projection books a replacement there. Daily-cycling a battery sold on a
               backup-power duty cycle is the warranty exposure in this business — {bat.chem === "NMC" ? "and NMC chemistry makes it acute." : "check the warranty's cycle basis before underwriting ten years."}
-            </Note></div>
-          )}
-
-          {custArb.blocked.length > 0 && (
-            <div className="mb-4"><Note tone="amber">
-              <strong>Not servable by this unit</strong> — excluded from savings:
-              <ul className="mt-1.5 space-y-0.5">
-                {custArb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
-              </ul>
-              <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
             </Note></div>
           )}
 
