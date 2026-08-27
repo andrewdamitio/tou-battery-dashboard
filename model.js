@@ -410,13 +410,17 @@ export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years,
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
     const replacement = replaceOnEOL && cumCycles > bat.cyc && !rows.some((r) => r.replaced);
+    // Record the cycle count that actually triggered replacement before
+    // resetting the running total for next year's fresh battery -- resetting
+    // first would erase the evidence in the very row that reports it.
+    const cumCyclesThisYear = cumCycles;
     if (replacement) cumCycles = 0;
 
     rows.push({
-      y, capFrac, cycles: arb.cycles, cumCycles,
+      y, capFrac, cycles: arb.cycles, cumCycles: cumCyclesThisYear,
       arbUSD: arb.usd, drUSD: dr, kwh: arb.kwh,
       replaced: replacement, replaceCost: replacement && hwCostFn ? hwCostFn(y) : 0,
-      eolYear: cumCycles > bat.cyc,
+      eolYear: cumCyclesThisYear > bat.cyc,
     });
   }
   return rows;

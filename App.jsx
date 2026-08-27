@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
-  Legend, BarChart, Bar, ComposedChart, Area, Cell,
+  Legend, BarChart, Bar, ComposedChart,
 } from "recharts";
 import RetailChoiceTab from "./RetailChoiceTab.jsx";
 import {
@@ -115,7 +115,14 @@ export default function Dashboard() {
     const p = PLANS.find((x) => x.id === planId);
     if (!p.custom) return p;
     const peak = [];
-    for (let h = custom.peakStart; h < custom.peakEnd; h++) peak.push(h % 24);
+    // Peak end can be earlier than peak start -- an overnight window like
+    // 22 to 2 -- in which case it wraps past midnight instead of being empty.
+    if (custom.peakStart < custom.peakEnd) {
+      for (let h = custom.peakStart; h < custom.peakEnd; h++) peak.push(h);
+    } else if (custom.peakStart > custom.peakEnd) {
+      for (let h = custom.peakStart; h < 24; h++) peak.push(h);
+      for (let h = 0; h < custom.peakEnd; h++) peak.push(h);
+    }
     return {
       ...p,
       weekdayOnly: custom.weekdayOnly,
@@ -136,6 +143,17 @@ export default function Dashboard() {
   const EV_CAT = APPLIANCE_CATS.findIndex((c) => c.t === "EV charging");
   useEffect(() => { if (plan.ev) setCollapsed((p) => ({ ...p, [EV_CAT]: false })); }, [plan.ev, EV_CAT]);
   const evLoad = (counts.e1 || 0) + (counts.e2 || 0);
+
+  // A CPP events/yr value set under one plan's min/max can land outside a
+  // different plan's range after switching tariffs -- reclamp both the
+  // customer's and operator's setting whenever the active CPP overlay's
+  // range changes, so a stale value never silently overstates savings.
+  useEffect(() => {
+    if (!plan.cpp) return;
+    const { mn, mx } = plan.cpp;
+    setCppEvents((v) => (v == null ? v : Math.min(mx, Math.max(mn, v))));
+    setCustCppEvents((v) => (v == null ? v : Math.min(mx, Math.max(mn, v))));
+  }, [plan.cpp?.mn, plan.cpp?.mx]);
 
   // Charging schedule, not charger size, decides whether an EV is worth anything
   // to a battery. A timer that already charges off-peak leaves nothing to shift.
@@ -169,6 +187,25 @@ export default function Dashboard() {
   // switching modes doesn't erase what you've typed in the other one.
   const activeMonthlyActual = loadInputMode === "calibrate" && calibMode === "total" ? monthlyActual : null;
   const activeMonthlyActualByTier = loadInputMode === "calibrate" && calibMode === "periods" ? monthlyActualByTier : null;
+
+  // Retail choice's household model has no TOU tariff of its own (it dispatches
+  // against wholesale LMP, not a rate schedule), so "by rate period" calibration
+  // has no periods to land on there. Collapse it to an effective monthly total
+  // instead -- sum whatever tiers were entered for a month, backfilling any
+  // untouched tier with its own appliance-implied estimate -- so calibrating by
+  // period on Customer bill still reaches Retail choice instead of being
+  // silently dropped.
+  const retailMonthlyActual = useMemo(() => {
+    if (loadInputMode !== "calibrate") return null;
+    if (calibMode === "total") return monthlyActual;
+    const out = {};
+    for (let m = 0; m < 12; m++) {
+      const entered = monthlyActualByTier[m];
+      if (!entered) continue;
+      out[m] = ratePeriods[m].reduce((s, _, ti) => s + (entered[ti] ?? impliedTierKwh[m][ti]), 0);
+    }
+    return Object.keys(out).length ? out : null;
+  }, [loadInputMode, calibMode, monthlyActual, monthlyActualByTier, ratePeriods, impliedTierKwh]);
 
   // -------------------------------------------------------------------------
   // MODEL
@@ -1010,9 +1047,10 @@ export default function Dashboard() {
                 <Metric label="DR revenue" value={fm(dr.total)} sub="to the operator, at current settings" positive={dr.total > 0} />
               </div>
               <p className="text-xs text-zinc-400 mt-1.5">
-                DR revenue shifts live with the dispatch success slider above. TOU arbitrage is fixed by the tariff, battery, and
-                household load set elsewhere — dispatch strategy on this tab no longer touches it, since the battery never idles
-                to trade it away.
+                DR revenue shifts live with the dispatch success slider above — and so does TOU arbitrage's CPP-avoidance
+                portion, if enrolled, since covering a CPP event also requires the battery to actually be online when called.
+                Ordinary daily peak shaving is the part dispatch strategy no longer touches: it's fixed by the tariff,
+                battery, and household load set elsewhere, since the battery never idles to trade it away.
               </p>
             </div>
 
@@ -1192,7 +1230,7 @@ export default function Dashboard() {
 
       {/* ================================================================= */}
       {tab === "retail" && (
-        <RetailChoiceTab counts={counts} sq={sq} bat={bat} applianceOverrides={applianceOverrides} monthlyActual={activeMonthlyActual} />
+        <RetailChoiceTab counts={counts} sq={sq} bat={bat} applianceOverrides={applianceOverrides} monthlyActual={retailMonthlyActual} />
       )}
 
       {tab === "programs" && (

@@ -205,7 +205,7 @@ export function supplierEconomics({
   const invKw = bat.pw;
 
   // --- 1. ENERGY: dispatch against wholesale price, all 12 months
-  let energySaving = 0, shiftedKwh = 0, cyclesEnergy = 0;
+  let energySaving = 0, shiftedKwh = 0;
   loadShape.months.forEach((mo) => {
     const lmp = wholesaleShape(market, mo.m);
     const cents = lmp.map((p) => p / 10); // $/MWh -> ¢/kWh
@@ -216,7 +216,6 @@ export function supplierEconomics({
     });
     energySaving += (r.valueUSD * mo.days.total);
     shiftedKwh += r.discharged * mo.days.total;
-    cyclesEnergy += (r.discharged / bat.kw) * mo.days.total;
   });
 
   // --- 2. CAPACITY: PLC reduction
@@ -241,9 +240,6 @@ export function supplierEconomics({
   const scarcityKw = Math.min(invKw, avail, tag.peakKw);
   const scarcitySaving = includeScarcity
     ? scarcityHrs * scarcityKw * ((scarcityPrice - market.lmpMean) / 1000) * cap.p
-    : 0;
-  const scarcityStress = includeScarcity
-    ? scarcityHrs * 4 * scarcityKw * ((market.priceCap - market.lmpMean) / 1000) * cap.p
     : 0;
 
   // Profile-based tags move the WRONG way: RTE losses raise monthly kWh.
@@ -272,8 +268,8 @@ export function supplierEconomics({
       ...(profileGated ? [{ k: "penalty", n: "RTE loss on profile tag", v: profilePenalty, gated: false }] : []),
     ],
     total, cap, tag, dPlc, profileGated,
-    energySaving, capacitySaving, transSaving, scarcitySaving, scarcityStress,
-    shiftedKwh, cyclesEnergy, candidateCycles: candidateDays,
+    energySaving, capacitySaving, transSaving, scarcitySaving,
+    shiftedKwh,
     revenue, energyCost, capacityCost, transCost, marginBase,
     marginWith: marginBase + total,
   };
@@ -288,17 +284,24 @@ export function supplierBusiness({ econ, sharePct, cac, softwareMo, churnPct, ye
   const shareCustomer = econ.total * (sharePct / 100);
   const keepFirm = econ.total - shareCustomer;
 
+  // Capacity + transmission settle a delivery year late. A customer who
+  // leaves before settlement hands the reduced tag to the next supplier free.
+  // A term contract through the delivery year removes nearly all of that risk
+  // -- the customer can't leave during the term, so only the single year
+  // beyond it carries ordinary churn exposure. Used for both the per-year
+  // cash flows below and the summary `forfeited` figure, so they can't drift
+  // apart the way they used to (forfeited previously ignored termContract).
+  const retainFrac = termContract
+    ? Math.pow(1 - churnPct / 100, Math.max(0, lagYears - 1))
+    : Math.pow(1 - churnPct / 100, lagYears);
+
   const flows = [-cac];
   const rows = [];
   let survivors = 1;
   for (let y = 1; y <= years; y++) {
     const startSurv = survivors;
     survivors *= 1 - churnPct / 100;
-    // Capacity + transmission settle a delivery year late. A customer who
-    // leaves before settlement hands the reduced tag to the next supplier free.
-    const lagged = y > lagYears ? Math.pow(1 - churnPct / 100, lagYears) : 0;
-    const laggedShare = termContract ? Math.pow(1 - churnPct / 100, Math.max(0, lagYears - 1)) : lagged;
-    const tagValue = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * startSurv * (y > lagYears ? laggedShare : 0);
+    const tagValue = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * startSurv * (y > lagYears ? retainFrac : 0);
     const promptValue = (econ.energySaving + econ.scarcitySaving) * (1 - sharePct / 100) * startSurv;
     const cost = softwareMo * 12 * startSurv;
     const net = tagValue + promptValue - cost;
@@ -306,7 +309,7 @@ export function supplierBusiness({ econ, sharePct, cac, softwareMo, churnPct, ye
     rows.push({ y, survivors: startSurv, tagValue, promptValue, cost, net });
   }
 
-  const forfeited = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * (1 - Math.pow(1 - churnPct / 100, lagYears));
+  const forfeited = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * (1 - retainFrac);
 
   let cum = -cac, paybackMo = null;
   for (let i = 1; i < flows.length && paybackMo === null; i++) {

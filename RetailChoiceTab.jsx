@@ -114,6 +114,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
   const gated = econ.profileGated;
   const construct = CAP_CONSTRUCTS[market.capConstruct];
   const cliff = market.capConstruct === "1CP" || market.capConstruct === "annualCP";
+  const noCapMarket = market.capConstruct === "none";
 
   return (
     <div>
@@ -246,18 +247,24 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         </div>
         <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm mt-1">
           <Row label="Capacity + transmission value at this capture" value={fm(econ.capacitySaving + econ.transSaving)} />
-          <Row label="P10 / P90 capture" value={`${(econ.cap.p10 * 100).toFixed(0)}% / ${(econ.cap.p90 * 100).toFixed(0)}%`} hint={cliff ? "wide — single-hour cliff" : `narrows across ${construct.hours} hours`} />
+          <Row label="P10 / P90 capture" value={`${(econ.cap.p10 * 100).toFixed(0)}% / ${(econ.cap.p90 * 100).toFixed(0)}%`} hint={noCapMarket ? "no capacity tag here" : cliff ? "wide — single-hour cliff" : `narrows across ${construct.hours} hours`} />
         </div>
         <div className="mt-1"><Note tone={cliff ? "amber" : "zinc"}>
           <strong>{construct.n}.</strong> {construct.desc}
           <br /><br />
-          {cliff
-            ? `Because the tag rests on a single hour, the P10/P90 spread above is wide. Two markets with identical expected value are not the same bet when one of them is a coin flip on one hour.`
-            : `Averaging across ${construct.hours} hours narrows the P10/P90 spread above, which is the main argument for entering PJM before NYISO.`}
-          <br /><br />
-          You dispatch on forecast, not on schedule — so catching {construct.hours} real CP{construct.hours > 1 ? "s" : ""} means
-          calling {candidateDays} candidate days. That's {candidateDays} cycles spent for {construct.hours} hours of value, and
-          it's the same cycle budget daily TOU shaving would compete for at a fraction of the value per cycle.
+          {noCapMarket
+            ? `There's no capacity tag here for this P10/P90 band to narrow or widen — capacity and transmission are both $0 above regardless of it. It still matters for the scarcity hedge below, which depends on the same forecast/availability/charged-ready chain.`
+            : cliff
+              ? `Because the tag rests on a single hour, the P10/P90 spread above is wide. Two markets with identical expected value are not the same bet when one of them is a coin flip on one hour.`
+              : `Averaging across ${construct.hours} hours narrows the P10/P90 spread above, which is the main argument for entering PJM before NYISO.`}
+          {!noCapMarket && (
+            <>
+              <br /><br />
+              You dispatch on forecast, not on schedule — so catching {construct.hours} real CP{construct.hours > 1 ? "s" : ""} means
+              calling {candidateDays} candidate days. That's {candidateDays} cycles spent for {construct.hours} hours of value, and
+              it's the same cycle budget daily TOU shaving would compete for at a fraction of the value per cycle.
+            </>
+          )}
         </Note></div>
       </div>
 
@@ -349,10 +356,13 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <Note tone={biz.forfeited > 0.15 * Math.max(1, econ.capacitySaving) ? "amber" : "zinc"}>
             <strong>The revenue arrives a delivery year late.</strong> You shave in summer 2026; the reduced tag applies to the
             delivery year starting June 2027. PLC is an attribute of the <em>account</em>, not of your relationship — so a
-            customer who leaves before settlement hands your reduction to their next supplier for free. That's{" "}
-            {fm(biz.forfeited)}/customer forfeited at {churnPct}% churn, and unlike ordinary churn it's work already performed.
-            The fix is contractual: pay on measured delta at verification rather than on delivery-year settlement, or hold the
-            account on term.
+            customer who leaves before settlement hands your reduction to their next supplier for free.{" "}
+            {termContract
+              ? <>The term contract above already covers that window, so at {churnPct}% churn there's only{" "}
+                  {fm(biz.forfeited)}/customer left forfeited — whatever ordinary churn risk falls outside the term itself.</>
+              : <>That's {fm(biz.forfeited)}/customer forfeited at {churnPct}% churn, and unlike ordinary churn it's work
+                  already performed. The fix is contractual: pay on measured delta at verification rather than on
+                  delivery-year settlement, or hold the account on term.</>}
           </Note>
         </div>
       </div>
