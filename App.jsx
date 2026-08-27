@@ -744,13 +744,10 @@ export default function Dashboard() {
               the assumption that this kind of export is treated as legal, which is the premise the business runs on and is not
               the case everywhere today.
               <br /><br />
-              Switched, hardwired appliances (central AC, an electric dryer, a range) are a separate question from the
-              always-on baseline and are still not modeled as reachable — formally requiring a subpanel/transfer switch, which
-              runs roughly $1,500–4,000 installed and reclassifies the unit as an interconnected ESS, triggering the
-              permitting and utility-approval process this model otherwise avoids.
-              <br /><br />
-              240V output still matters: an EV Level 2 charger plugs into a NEMA 14-50, so a 240V unit can serve it with no
-              wiring work regardless.
+              Hardwired appliances (central AC, an electric dryer, a range) are different — not reachable here, since wiring
+              one in would need a subpanel/transfer switch ($1,500–4,000 installed) and reclassify the unit as an
+              interconnected ESS, triggering the permitting this model otherwise avoids. EV Level 2 charging is the exception:
+              it plugs into a standard NEMA 14-50 outlet, so a 240V unit reaches it with no wiring work.
             </Note></div>
             <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
               <Row label="Usable energy" value={`${(bat.kw * USABLE_SOC).toFixed(2)} kWh`} hint={`${(USABLE_SOC * 100).toFixed(0)}% of ${bat.kw}`} />
