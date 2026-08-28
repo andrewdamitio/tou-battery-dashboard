@@ -135,9 +135,16 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         operators — PJM, NYISO, ISO-NE, called ISOs — run the wholesale markets this all settles in; ERCOT runs Texas's, and
         does it differently, with no capacity market at all.)
         <br /><br />
-        A non-exporting battery never sells anything, so nothing here is arbitrage revenue. It's cost avoidance on four lines:
-        capacity (via PLC), transmission (the same mechanism, its own tag called NSPL), energy, and scarcity exposure. Note
-        which one is large.
+        <strong>Why does the firm have to be the supplier?</strong> Because PLC and NSPL are billed to the supplier of record
+        specifically — that's an account-level regulatory relationship, not an open invoice anyone can send. A company that
+        merely sells the battery software to whichever supplier the household already has has no bill of its own to shrink
+        and nothing to keep; it would be doing that supplier a favor on someone else's cost of service. Holding the supplier
+        relationship is what turns "we can lower this account's PLC" into money the firm actually retains — and it's also
+        the only way to capture the fourth line below, which has nothing to do with PLC at all.
+        <br /><br />
+        A non-exporting battery never sells anything, so nothing here is arbitrage revenue in the sense the rest of this app
+        uses that word. It's cost avoidance on four lines — capacity (via PLC), transmission (the same mechanism, its own tag
+        called NSPL), energy, and scarcity exposure — each explained where it's broken out below.
       </Note></div>
 
       {/* ---------------- market & methodology: chosen first, everything below reacts to it ---------------- */}
@@ -249,9 +256,19 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           </div>
         </div>
         <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-          The battery is paid for <strong>kW at a moment</strong>, not kWh over time. That's why the implied value per kWh runs
-          orders of magnitude above any wholesale spread, and why energy arbitrage is the smallest line despite being the one
-          the "buy low, sell high" framing points at.
+          Capacity and transmission are paid for <strong>kW at a moment</strong>, not kWh over time — that's the mechanism
+          explained above, and why the implied value per kWh runs orders of magnitude above any wholesale spread.
+        </p>
+        <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+          <strong>Energy arbitrage</strong> is the "buy low, sell high" idea the framing points at, but against the
+          supplier's own wholesale purchase price (hourly LMP) instead of a retail TOU rate — the battery charges when the
+          supplier's power is cheap and discharges into the supplier's own most expensive procurement hours, cutting what it
+          pays to buy energy for this customer. <strong>Scarcity hedge</strong> isn't a savings line at all — it's insurance.
+          A supplier selling at a fixed retail rate is short the wholesale market by construction, and if prices spike into
+          the thousands during a genuine crunch (Winter Storm Uri territory), that shortfall can erase years of margin in one
+          week. A fleet that can discharge into exactly those hours hedges that one tail risk; it isn't revenue you'd expect
+          most years, which is why
+          it's sized off a rare-event hours-per-year assumption rather than a normal load shape.
         </p>
       </div>
 
