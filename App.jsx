@@ -1006,8 +1006,9 @@ export default function Dashboard() {
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 leading-relaxed">
                           Nothing pays you to idle — this pays for measured reduction against a rolling similar-day baseline built
                           from your own recent non-event days, and shaving daily drags that baseline down within about two weeks.
-                          This battery always shaves (see Dispatch strategy below), so that reference stays low and the program is
-                          shown at what it's actually worth under daily use{item && item.eroded > 0 ? ` — ${fm(item.gross)}/yr forfeited to erosion` : ", which is $0"}.
+                          This battery always shaves daily instead of idling to protect that baseline, so the reference stays low
+                          and the program is shown at what it's actually worth under daily
+                          use{item && item.eroded > 0 ? ` — ${fm(item.gross)}/yr forfeited to erosion` : ", which is $0"}.
                         </p>
                       )}
                       {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
