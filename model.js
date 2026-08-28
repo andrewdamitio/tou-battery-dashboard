@@ -296,8 +296,16 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
 
   // Peak-window addressable load on a summer weekday — the ceiling on what any
   // event-based program can ever pay for, and the deemed-settlement reference.
-  const blocked = months[6]?.blocked || [];
   const summerM = plan.summerMonths.includes(6) ? 6 : plan.summerMonths[0] ?? 6;
+  // A single summer month's blocked list misses season:"w" appliances (e.g. a
+  // hardwired heat pump) entirely -- loadShapeForMonth skips them before
+  // servabilityFailure even runs in a summer month. Scan a winter month too
+  // and merge, so the aggregate list matches every per-appliance badge shown
+  // in the UI regardless of season.
+  const winterM = [...Array(12).keys()].find((m) => !plan.summerMonths.includes(m)) ?? summerM;
+  const blockedIds = new Set();
+  const blocked = [...(months[summerM]?.blocked || []), ...(months[winterM]?.blocked || [])]
+    .filter((b) => (blockedIds.has(b.id) ? false : (blockedIds.add(b.id), true)));
   const peakHours = plan.s.peak;
   const summerShape = months[summerM];
   const peakWindowLoadKwh = peakHours.reduce((s, h) => s + (summerShape?.loadShape[h] ?? 0), 0);
@@ -409,7 +417,12 @@ export function projectAsset({ plan, bat, counts, sq, applianceOverrides, years,
     cumCycles += arb.cycles;
 
     const dr = drFn ? drFn(arb, capFrac) : 0;
-    const replacement = replaceOnEOL && cumCycles > bat.cyc && !rows.some((r) => r.replaced);
+    // No cap on how many times a battery can be replaced across the horizon
+    // -- an extreme-cycling household can burn through a second rated
+    // lifetime well within 10 years, and every downstream reader of
+    // `replaced` (cash-flow charts, replacement rows) already handles more
+    // than one match via .filter()/.some(), not just the first.
+    const replacement = replaceOnEOL && cumCycles > bat.cyc;
     // Record the cycle count that actually triggered replacement before
     // resetting the running total for next year's fresh battery -- resetting
     // first would erase the evidence in the very row that reports it.
@@ -444,12 +457,17 @@ export function irr(flows, lo = -0.95, hi = 5) {
 
 export function paybackYear(flows) {
   let cum = 0;
+  let everNegative = false;
   for (let t = 0; t < flows.length; t++) {
     const prev = cum;
     cum += flows[t];
     if (prev < 0 && cum >= 0) return t - 1 + (-prev) / (cum - prev || 1);
+    if (cum < 0) everNegative = true;
   }
-  return Infinity;
+  // Cumulative never dipped negative at all -- paid back immediately (t=0),
+  // not "never." Only reachable with an unusually large upfront/deposit; the
+  // crossing check above never fires because prev starts at 0, not negative.
+  return everNegative ? Infinity : 0;
 }
 
 // --- operator economics (per unit) ----------------------------------------

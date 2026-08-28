@@ -311,11 +311,16 @@ export function supplierBusiness({ econ, sharePct, cac, softwareMo, churnPct, ye
 
   const forfeited = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * (1 - retainFrac);
 
-  let cum = -cac, paybackMo = null;
+  let cum = -cac, paybackMo = null, everNegative = cum < 0;
   for (let i = 1; i < flows.length && paybackMo === null; i++) {
     const prev = cum; cum += flows[i];
     if (prev < 0 && cum >= 0) paybackMo = (i - 1 + (-prev) / (cum - prev)) * 12;
+    if (cum < 0) everNegative = true;
   }
+  // Cumulative never went negative (e.g. cac=0 with a profitable year one) --
+  // paid back immediately, not "never." The crossing check above can't catch
+  // this since it only fires on a negative-to-non-negative transition.
+  if (paybackMo === null && !everNegative) paybackMo = 0;
 
   const ltv = rows.reduce((s, r) => s + r.net, 0) + cac;
   return { rows, flows, shareCustomer, keepFirm, forfeited, paybackMo, ltv, ltvCac: cac > 0 ? ltv / cac : Infinity };

@@ -45,6 +45,7 @@ function Note({ children, tone = "zinc" }) {
     amber: "bg-amber-50 dark:bg-amber-900/25 text-amber-800 dark:text-amber-300",
     red: "bg-red-50 dark:bg-red-900/25 text-red-700 dark:text-red-400",
     green: "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400",
+    purple: "bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300",
   }[tone];
   return <div className={`rounded-lg p-3 text-xs leading-relaxed ${t}`}>{children}</div>;
 }
@@ -118,7 +119,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
 
   return (
     <div>
-      <div className="mb-4"><Note>
+      <div className="mb-4"><Note tone="purple">
         <strong>A different business from the rest of this app.</strong> Here the firm is the customer's electricity
         <em> supplier</em> in a retail-choice market. It never buys the battery — the customer already owns one and installs
         software. Value comes from cutting the supplier's own cost to serve, then sharing it back.
@@ -261,8 +262,9 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             <>
               <br /><br />
               You dispatch on forecast, not on schedule — so catching {construct.hours} real CP{construct.hours > 1 ? "s" : ""} means
-              calling {candidateDays} candidate days. That's {candidateDays} cycles spent for {construct.hours} hours of value, and
-              it's the same cycle budget daily TOU shaving would compete for at a fraction of the value per cycle.
+              calling more days than that, since most forecast-flagged days turn out to be false alarms. The {candidateDays}-day
+              figure below is a planning estimate of that false-positive rate — the extra cycle wear it implies isn't costed
+              into the dollar totals on this tab yet, so treat it as directional, not a number already baked into the total.
             </>
           )}
         </Note></div>
@@ -295,7 +297,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <Slider label="CP forecast accuracy" value={forecastHit} onChange={setForecastHit} min={20} max={100} step={5} fmt={(v) => v + "%"} />
           <Slider label="Device online" value={availability} onChange={setAvailability} min={30} max={100} step={5} fmt={(v) => v + "%"} hint="you don't own it" />
           <Slider label="Charged when called" value={socReady} onChange={setSocReady} min={30} max={100} step={5} fmt={(v) => v + "%"} />
-          <Slider label="Candidate days called" value={candidateDays} onChange={setCandidateDays} min={5} max={60} fmt={(v) => v + " days"} />
+          <Slider label="Candidate days called" value={candidateDays} onChange={setCandidateDays} min={5} max={60} fmt={(v) => v + " days"} hint="planning estimate — not yet costed below" />
           <label className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
             <input type="checkbox" checked={includeScarcity} onChange={(e) => setIncludeScarcity(e.target.checked)} className="w-4 h-4" />
             Count the scarcity hedge
@@ -353,7 +355,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             bill? If not, a customer who switches suppliers in the meantime hands that already-earned savings to whoever they
             switch to, for free.
           </p>
-          <Note tone={biz.forfeited > 0.15 * Math.max(1, econ.capacitySaving) ? "amber" : "zinc"}>
+          <Note tone={biz.forfeited > 0.15 * Math.max(1, econ.capacitySaving + econ.transSaving) ? "amber" : "zinc"}>
             <strong>The revenue arrives a delivery year late.</strong> You shave in summer 2026; the reduced tag applies to the
             delivery year starting June 2027. PLC is an attribute of the <em>account</em>, not of your relationship — so a
             customer who leaves before settlement hands your reduction to their next supplier for free.{" "}

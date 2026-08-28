@@ -155,6 +155,15 @@ export default function Dashboard() {
     setCustCppEvents((v) => (v == null ? v : Math.min(mx, Math.max(mn, v))));
   }, [plan.cpp?.mn, plan.cpp?.mx]);
 
+  // "By rate period" calibration is entered against a specific tariff's own
+  // Peak/Off-Peak/Super-off-peak hours, matched by array position -- a value
+  // entered under one plan's tiers has no valid meaning under a different
+  // plan's tier count or boundaries. Reset it on every tariff switch rather
+  // than silently reapplying stale numbers to the wrong periods. The
+  // "Monthly total" mode is plan-agnostic (real household kWh doesn't depend
+  // on the tariff) and deliberately isn't touched here.
+  useEffect(() => { setMonthlyActualByTier({}); }, [planId]);
+
   // Charging schedule, not charger size, decides whether an EV is worth anything
   // to a battery. A timer that already charges off-peak leaves nothing to shift.
   const applianceOverrides = useMemo(() => (
@@ -427,9 +436,15 @@ export default function Dashboard() {
       </div>
 
       <div className="flex gap-0.5 border-b border-zinc-200 dark:border-zinc-700 mb-4 flex-wrap">
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${tab === t.id ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>{t.label}</button>
-        ))}
+        {tabs.map((t) => {
+          // Retail choice is a genuinely different business (the firm is a
+          // supplier, not a battery owner) -- a distinct accent instead of
+          // the shared blue keeps that from blending in as just another tab.
+          const activeColor = t.id === "retail" ? "border-purple-500 text-purple-600 dark:text-purple-400" : "border-blue-500 text-blue-600 dark:text-blue-400";
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${tab === t.id ? activeColor : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>{t.label}</button>
+          );
+        })}
       </div>
 
       {/* ================================================================= */}
