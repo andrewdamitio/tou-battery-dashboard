@@ -120,12 +120,24 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
   return (
     <div>
       <div className="mb-4"><Note tone="purple">
-        <strong>A different business from the rest of this app.</strong> Here the firm is the customer's electricity
-        <em> supplier</em> in a retail-choice market. It never buys the battery — the customer already owns one and installs
-        software. Value comes from cutting the supplier's own cost to serve, then sharing it back.
+        <strong>A different business from the rest of this app.</strong> In a retail-choice state, two separate companies
+        serve a household: the EDC (the regulated utility — owns the wires and meters, delivers the power) and a competitive{" "}
+        <em>supplier</em> (sells the electricity itself and gets billed by the EDC for what its customers used). Here the
+        firm <em>is</em> the supplier. It never buys the battery — the customer already owns one and installs software.
+        Value comes from cutting the supplier's own cost to serve, then sharing it back.
+        <br /><br />
+        The mechanism runs through a number called <strong>PLC</strong> (Peak Load Contribution). Once a year, the EDC looks
+        back at how much power an account drew during a handful of hours when the whole regional grid was under its worst
+        strain — the <strong>coincident peaks</strong>, or <strong>CP</strong> hours — and that becomes the account's PLC:
+        the basis for what the supplier gets charged to keep that customer supplied through next year's peak season. A
+        battery that measurably shaves usage during those specific hours lowers the PLC, which lowers the supplier's own
+        cost — not the customer's bill directly. That's the mechanism every number on this tab traces back to. (Regional grid
+        operators — PJM, NYISO, ISO-NE, called ISOs — run the wholesale markets this all settles in; ERCOT runs Texas's, and
+        does it differently, with no capacity market at all.)
         <br /><br />
         A non-exporting battery never sells anything, so nothing here is arbitrage revenue. It's cost avoidance on four lines:
-        capacity, transmission, energy, and scarcity exposure. Note which one is large.
+        capacity (via PLC), transmission (the same mechanism, its own tag called NSPL), energy, and scarcity exposure. Note
+        which one is large.
       </Note></div>
 
       {/* ---------------- market & methodology: chosen first, everything below reacts to it ---------------- */}
@@ -138,7 +150,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm">
           <Row label="Capacity construct" value={CAP_CONSTRUCTS[market.capConstruct].n} />
           <Row label="Transmission allocation" value={market.transAlloc === "delivery" ? "Regulated delivery — out of reach" : "Varies by state — verify"} />
-          <Row label="Customer PLC (no battery)" value={`${econ.tag.plc.toFixed(2)} kW`} hint="grossed up" />
+          <Row label="Customer PLC (no battery)" value={`${econ.tag.plc.toFixed(2)} kW`} hint="Peak Load Contribution, grossed up" />
           <Row label="PLC reduction achieved" value={`${econ.dPlc.toFixed(2)} kW`} />
           <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{market.note}</p>
         </div>
@@ -146,6 +158,11 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
 
       <div className="mb-5">
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">PLC methodology — the gate</p>
+        <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+          The EDC (not the supplier) decides <em>how</em> an account's PLC gets calculated, and that choice alone decides
+          whether this business exists for a given customer — before capacity prices, before battery size, before anything
+          else. Pick the option below that matches how the current market actually computes it.
+        </p>
         <div className="grid grid-cols-2 gap-2">
           {[["interval", "Interval-derived", "Tag comes from the account's actual hourly meter data. Battery discharge during CP hours is visible to the calculation and the tag falls."],
             ["profile", "Class load profile", "Tag comes from a class-average shape scaled by monthly kWh. The account's real peak-hour behavior never enters the formula. The battery is invisible."]].map(([id, t, d]) => (
@@ -157,9 +174,11 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           ))}
         </div>
         <p className="text-xs text-zinc-400 mt-2">
-          Check the EDC's load-profiling manual or its supplier-facing EDI enrollment specs — suppliers pull PLC and NSPL per
-          account through that channel specifically so they can price a customer. Some EDCs run hybrids: interval where AMI is
-          deployed, profiles elsewhere. That's the good case, because you can screen at enrollment instead of writing off a state.
+          Check the EDC's load-profiling manual or its supplier-facing EDI (electronic data interchange — the standardized
+          filing format utilities and suppliers trade account data through) enrollment specs; suppliers pull PLC and NSPL
+          per account through that channel specifically so they can price a customer. Some EDCs run hybrids: interval where
+          AMI (advanced metering infrastructure — smart meters) is deployed, profiles elsewhere. That's the good case,
+          because you can screen at enrollment instead of writing off a state.
         </p>
       </div>
 
@@ -179,7 +198,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
       {market.capConstruct === "none" && (
         <div className="mb-4"><Note tone="amber">
           <strong>ERCOT is energy-only</strong> — no capacity market exists, so there's no tag to reduce and the 4CP
-          transmission allocation applies to large C&I load, not residential. The entire residential value here is the
+          transmission allocation applies to large commercial and industrial (C&I) load, not residential. The entire
+          residential value here is the
           scarcity hedge. That's a thinner but genuinely real business: a supplier is structurally short spot power, and a
           fleet discharging into $5,000/MWh hours is a physical hedge on exactly the exposure that bankrupted retailers
           during Uri.
@@ -285,8 +305,9 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <Note tone="amber">
             <strong>None of these defaults are sourced.</strong> They're plausible magnitudes exposed as inputs because they
             should be replaced before any decision rests on them. Capacity prices in particular moved roughly tenfold across
-            three PJM auctions — pull the actual BRA results. The clearing price is at least known before the summer you'd run
-            the campaign, so this is known-but-variable revenue rather than uncertain revenue.
+            three PJM auctions — pull the actual BRA (Base Residual Auction, PJM's annual capacity auction) results. The
+            clearing price is at least known before the summer you'd run the campaign, so this is known-but-variable revenue
+            rather than uncertain revenue.
           </Note>
         </div>
       </div>
@@ -306,7 +327,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             Availability is the hard one and it doesn't behave like average uptime. The failure modes — unit taken camping,
             unplugged, already drained running the customer's own AC — are <em>positively correlated</em> with the hot days
             that set peaks. Effective availability during CP hours is plausibly well below fleet-average uptime, and no
-            contract fixes that because you don't own the hardware and there's no SLA.
+            contract fixes that because you don't own the hardware and there's no SLA (service-level agreement) to enforce.
           </Note>
         </div>
       </div>
@@ -395,7 +416,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <strong>What this tab does not model.</strong> Being a retail supplier at all: state licensing, ISO membership,
         collateral posting, wholesale procurement, hedging, billing, and regulated marketing compliance. That is the hard part
         and it is not software — it's an energy company with a software layer, funded by credit-sensitive collateral rather
-        than by a SaaS round. Also unmodeled: whether an EDC's tariff permits DER-driven tag reduction at all, and the risk
+        than by a SaaS round. Also unmodeled: whether an EDC's tariff permits tag reduction driven by a DER (distributed
+        energy resource — the battery, in this case) at all, and the risk
         that a state exits the PJM capacity construct via a Fixed Resource Requirement, which would change the allocation
         mechanism underneath all of this. That last one is unhedgeable within a market and argues for a multi-state footprint
         earlier than unit economics alone would suggest.

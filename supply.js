@@ -97,7 +97,7 @@ export const MARKETS = [
     lmpMean: 38, retailRate: 13.5, deliveryRate: 5.0,
     scarcityHrs: 25, scarcityPrice: 2800, priceCap: 5000,
     plcDefault: "interval",
-    note: "Energy-only market: no capacity charge exists to reduce, and 4CP transmission allocation applies to large C&I loads, not residential. The entire residential value here is scarcity hedging on the supplier's short position — which is exactly the exposure that bankrupted retailers during Winter Storm Uri.",
+    note: "Energy-only market: no capacity charge exists to reduce, and 4CP transmission allocation applies to large commercial and industrial (C&I) loads, not residential. The entire residential value here is scarcity hedging on the supplier's short position — which is exactly the exposure that bankrupted retailers during the February 2021 Winter Storm Uri outages.",
   },
 ];
 
