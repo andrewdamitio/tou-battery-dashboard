@@ -419,7 +419,7 @@ export default function Dashboard() {
     { id: "operator", label: "Operator economics" },
     { id: "fleet", label: "Fleet & funding" },
     { id: "retail", label: "Retail choice model" },
-    { id: "programs", label: "Program reference" },
+    { id: "programs", label: "Hardwired model" },
   ];
 
   return (
@@ -1035,8 +1035,8 @@ export default function Dashboard() {
                 })}
                 {DR_PROGRAMS.every((p) => !((!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp))) && (
                   <p className="p-3 text-xs text-zinc-400 leading-relaxed">
-                    No program on this list is available on {plan.n} ({plan.st}) — see Program reference for the full national
-                    landscape.
+                    No program on this list is available on {plan.n} ({plan.st}) — see the Hardwired model tab for what's
+                    available if you go beyond a plug-in unit.
                   </p>
                 )}
               </div>
@@ -1271,27 +1271,19 @@ export default function Dashboard() {
       {tab === "programs" && (
         <div>
           <div className="mb-5"><Note>
-            <strong>Two archetypes decide everything.</strong> <em>Meter-based</em> programs pay for measured kWh reduction and don't
-            care what device achieved it — a non-export battery qualifies directly. <em>Device-list</em> programs require an
-            interconnected, export-capable ESS from an approved hardware list and pay per kW discharged to the grid; plug-in stations
-            are categorically excluded from all of them. Switching the connection mode to a critical-loads subpanel is what moves a
-            customer across that line.
+            <strong>A different model from the rest of this app, the way Retail choice is.</strong> Everything elsewhere here
+            assumes a plug-in unit: no electrician, no permit, no subpanel — which is exactly why it's locked out of the
+            programs below. Those all require an <em>interconnected, export-capable ESS</em> from an approved hardware list,
+            paying per kW discharged to the grid, not a wall-outlet unit backfeeding the home. Reaching them means giving up
+            the plug-in premise entirely: a subpanel/transfer switch ($1,500–4,000 installed), grid interconnection, and the
+            permitting and utility-approval process the rest of this app is built to avoid.
+            <br /><br />
+            The payoff for doing that is real. A 5 kW hardwired system earns roughly $1,100–$1,650/yr on MA
+            ConnectedSolutions alone — an order of magnitude above anything a plug-in unit can reach through any program
+            modeled on Operator economics. Never underwrite plug-in economics on these numbers; they're a different business,
+            not a bigger version of this one.
           </Note></div>
 
-          {DR_PROGRAMS.map((p) => (
-            <div key={p.id} className="mb-3 p-4 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
-              <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1 flex items-center gap-2 flex-wrap">
-                {p.n}
-                <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium bg-white dark:bg-zinc-900 text-zinc-500">{p.basis}</span>
-                {p.st && <span className="text-xs font-normal text-zinc-400">{p.st.join(", ")}</span>}
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{p.note}</p>
-              {p.basis === "baseline" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">Baseline-measured — value decays if the battery also shaves TOU peaks daily. See the Operator economics tab.</p>}
-              {p.basis === "avoidance" && <p className="text-xs text-blue-600 dark:text-blue-400 mt-1.5">Counted as bill savings (TOU), not DR revenue — it's a rate feature, not a third-party payment. See Customer bill or Operator economics.</p>}
-            </div>
-          ))}
-
-          <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mt-6 mb-2">Hardwired-only — the richest programs, all closed to plug-in stations</h3>
           <div className="p-4 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-xs space-y-2">
             {HARDWIRED_ONLY.map((h) => (
               <div key={h.n} className="grid md:grid-cols-[220px_1fr] gap-x-4">
@@ -1300,10 +1292,9 @@ export default function Dashboard() {
               </div>
             ))}
             <p className="text-zinc-400 pt-2 border-t border-zinc-200 dark:border-zinc-700">
-              Every one requires grid interconnection, export capability, and hardware from an approved list. A 5 kW hardwired system
-              earns roughly $1,100–$1,650/yr on MA ConnectedSolutions — an order of magnitude above anything a plug-in unit can reach.
-              Never underwrite plug-in economics on these numbers. Watch for any program publishing a load-reduction-only device
-              class; that would be the expansion trigger.
+              Every one requires grid interconnection, export capability, and hardware from an approved list. Watch for any
+              program publishing a load-reduction-only device class instead — that would be the trigger for a plug-in unit to
+              cross this line without the subpanel, and the reason this list is worth checking back on.
             </p>
           </div>
         </div>
