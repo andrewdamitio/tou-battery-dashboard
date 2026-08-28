@@ -974,35 +974,39 @@ export default function Dashboard() {
 
             <div className="mb-5">
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Programs</p>
+              <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+                Not the same thing as the tariff above. A tariff is the rate structure you're billed under — you're on exactly
+                one. A program is an optional overlay or side payment stacked on top of it — you can enroll in none, one, or
+                several at once, and each is only listed here when it's actually available on {plan.n} ({plan.st}).
+              </p>
               <div className="bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-hidden">
-                {DR_PROGRAMS.map((p) => {
-                  const ok = (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp);
+                {DR_PROGRAMS.filter((p) => (!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp)).map((p) => {
                   const isCpp = p.id === "cpp";
                   const item = isCpp ? null : dr.items.find((x) => x.id === p.id);
-                  const cppActive = isCpp && drEnabled.cpp && ok;
+                  const cppActive = isCpp && drEnabled.cpp;
                   const badge = { baseline: ["Erodes", "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"], avoidance: ["Stacks", "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"], indirect: ["Indirect", "bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"] }[p.basis];
                   return (
                     <div key={p.id} className="border-b border-zinc-200 dark:border-zinc-700 last:border-0 p-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <label className={`flex items-center gap-2 font-medium text-sm min-w-[200px] ${ok ? "cursor-pointer text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`}>
-                          <input type="checkbox" disabled={!ok} checked={!!(drEnabled[p.id] && ok)} onChange={(e) => setDrEnabled((v) => ({ ...v, [p.id]: e.target.checked }))} className="w-4 h-4" />
+                        <label className="flex items-center gap-2 font-medium text-sm min-w-[200px] cursor-pointer text-zinc-900 dark:text-zinc-100">
+                          <input type="checkbox" checked={!!drEnabled[p.id]} onChange={(e) => setDrEnabled((v) => ({ ...v, [p.id]: e.target.checked }))} className="w-4 h-4" />
                           {p.id === "cpp" && plan.cpp ? `${plan.cpp.n} (critical peak pricing)` : p.n}
                         </label>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium ${badge[1]}`}>{badge[0]}</span>
-                        {p.basis === "indirect" && drEnabled[p.id] && ok && (
+                        {p.basis === "indirect" && drEnabled[p.id] && (
                           <span className="flex items-center gap-1 text-sm"><span className="text-zinc-400">$</span>
                             <input type="number" min={0} step={5} value={drOverrides[p.id] ?? 0} onChange={(e) => setDrOverrides((v) => ({ ...v, [p.id]: Math.max(0, +e.target.value || 0) }))} className="p-1 w-20 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
                             <span className="text-zinc-400">/yr</span></span>
                         )}
                         <span className="ml-auto font-data text-sm font-medium text-green-600">
-                          {isCpp ? (cppActive ? fm(opArb.cppUsd) + "/yr" : ok ? "—" : "n/a") : item ? fm(item.value) + "/yr" : ok ? "—" : "n/a"}
+                          {isCpp ? (cppActive ? fm(opArb.cppUsd) + "/yr" : "—") : item ? fm(item.value) + "/yr" : "—"}
                         </span>
                       </div>
                       <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{p.note}</p>
                       {isCpp && cppActive && (
                         <p className="text-xs text-zinc-400 mt-1">Counted in TOU savings above, not DR revenue — it's a rate feature, not a third-party payment.</p>
                       )}
-                      {p.basis === "baseline" && ok && (
+                      {p.basis === "baseline" && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 leading-relaxed">
                           Nothing pays you to idle — this pays for measured reduction against a rolling similar-day baseline built
                           from your own recent non-event days, and shaving daily drags that baseline down within about two weeks.
@@ -1011,10 +1015,15 @@ export default function Dashboard() {
                           use{item && item.eroded > 0 ? ` — ${fm(item.gross)}/yr forfeited to erosion` : ", which is $0"}.
                         </p>
                       )}
-                      {!ok && <p className="text-xs text-zinc-400 mt-1">Not available on {plan.n} ({plan.st}).</p>}
                     </div>
                   );
                 })}
+                {DR_PROGRAMS.every((p) => !((!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp))) && (
+                  <p className="p-3 text-xs text-zinc-400 leading-relaxed">
+                    No program on this list is available on {plan.n} ({plan.st}) — see Program reference for the full national
+                    landscape.
+                  </p>
+                )}
               </div>
             </div>
 
