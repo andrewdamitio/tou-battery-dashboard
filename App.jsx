@@ -700,15 +700,25 @@ export default function Dashboard() {
             })}
           </div>
 
-          {custArb.blocked.length > 0 && (
-            <div className="mb-5"><Note tone="amber">
-              <strong>Not servable by this unit</strong> — excluded from savings:
-              <ul className="mt-1.5 space-y-0.5">
-                {custArb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
-              </ul>
-              <p className="mt-1.5">In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit.</p>
-            </Note></div>
-          )}
+          {custArb.blocked.length > 0 && (() => {
+            const anyHardwired = custArb.blocked.some((b) => b.reason.startsWith("hardwired"));
+            const anyBatteryLimited = custArb.blocked.some((b) => !b.reason.startsWith("hardwired"));
+            return (
+              <div className="mb-5"><Note tone="amber">
+                <strong>Not servable by this unit</strong> — excluded from savings:
+                <ul className="mt-1.5 space-y-0.5">
+                  {custArb.blocked.map((b) => <li key={b.id}>· {b.n} — {b.reason}</li>)}
+                </ul>
+                <p className="mt-1.5">
+                  {anyHardwired && anyBatteryLimited
+                    ? "Two different reasons are mixed in above: some of these have no outlet at all — genuinely hardwired, fixed regardless of battery. Others do plug in, but this specific battery's voltage, power, or surge rating can't reach them — a different unit would."
+                    : anyHardwired
+                    ? "In most homes the largest peak loads are hardwired. That, not battery capacity, is usually what caps savings for a cord-connected unit."
+                    : "None of these are hardwired — they plug in the same as anything else, but this specific battery's voltage, power, or surge rating can't reach them. A higher-spec unit would serve them through the same wall outlet."}
+                </p>
+              </Note></div>
+            );
+          })()}
 
           <div className="mb-5">
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Battery</p>
