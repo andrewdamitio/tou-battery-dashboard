@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
   Legend, BarChart, Bar, ComposedChart,
@@ -62,24 +62,31 @@ function Note({ children, tone = "zinc" }) {
   return <div className={`rounded-lg p-3 text-xs leading-relaxed ${tones[tone]}`}>{children}</div>;
 }
 
+const CORE_GROUP_LABEL = "Plug and Play Model";
 const CORE_TABS = [
-  { id: "model", label: "Customer bill" },
-  { id: "operator", label: "Operator economics" },
-  { id: "fleet", label: "Fleet & funding" },
+  { id: "model", label: "Customer Bill" },
+  { id: "operator", label: "Operator Economics" },
+  { id: "fleet", label: "Fleet & Funding" },
 ];
 const OTHER_TABS = [
-  { id: "retail", label: "Retail choice model" },
-  { id: "programs", label: "Hardwired model" },
+  { id: "retail", label: "Retail Choice Model" },
+  { id: "programs", label: "Hardwired Model" },
 ];
 
 export default function Dashboard() {
   const [tab, setTab] = useState("model");
-  // Customer bill / Operator economics / Fleet & funding are one model, viewed
-  // three ways -- remember which of the three was last open so switching away
-  // to Retail choice or Hardwired and back doesn't reset the dropdown to the top.
-  const [lastCoreTab, setLastCoreTab] = useState("model");
   const isCoreTab = CORE_TABS.some((t) => t.id === tab);
-  useEffect(() => { if (isCoreTab) setLastCoreTab(tab); }, [tab, isCoreTab]);
+
+  const [coreMenuOpen, setCoreMenuOpen] = useState(false);
+  const coreMenuRef = useRef(null);
+  useEffect(() => {
+    if (!coreMenuOpen) return;
+    const onClick = (e) => { if (coreMenuRef.current && !coreMenuRef.current.contains(e.target)) setCoreMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setCoreMenuOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onKey); };
+  }, [coreMenuOpen]);
 
   // --- consumer inputs
   const [planId, setPlanId] = useState("sdr");
@@ -436,25 +443,34 @@ export default function Dashboard() {
         <div className="font-data text-[11px] tracking-[0.2em] uppercase text-blue-600 dark:text-blue-400 mb-2">BTM fleet console</div>
         <h1 className="font-display text-[26px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Can plug-in batteries make money — for the company, and the customer?</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-[620px]">
-          Every tab runs the same discipline on a different business model: does this actually make money once the honest math
-          is run? Customer bill, Operator economics, and Fleet & funding dispatch a wall-outlet battery that backfeeds the
-          home — never the grid — through degradation and DR baseline erosion to a fleet ramp. Retail choice model and
-          Hardwired model test different businesses entirely, each on its own terms. No step, in any of them, is allowed to
-          flatter the answer.
+          Every tab runs the same discipline on a different business model: does this actually make money once the honest
+          math is run? Plug and Play Model dispatches a wall-outlet battery that backfeeds the home — never the grid —
+          through degradation and DR baseline erosion to a fleet ramp. Retail Choice Model and Hardwired Model test
+          different businesses entirely, each on its own terms. No step, in any of them, is allowed to flatter the answer.
         </p>
       </div>
 
       <div className="flex gap-0.5 border-b border-zinc-200 dark:border-zinc-700 mb-4 flex-wrap items-center">
-        {/* Customer bill, Operator economics, and Fleet & funding are three views of one
+        {/* Customer Bill, Operator Economics, and Fleet & Funding are three views of one
             model, not three businesses -- grouped under a single dropdown tab instead of
-            three separate ones. Retail choice and Hardwired are genuinely different
+            three separate ones. Retail Choice and Hardwired are genuinely different
             businesses, so they stay as their own tabs. */}
-        <div className="relative">
-          <select value={isCoreTab ? tab : lastCoreTab} onChange={(e) => setTab(e.target.value)}
-            className={`appearance-none bg-transparent cursor-pointer px-4 py-3 pr-7 text-sm font-medium border-b-2 -mb-px transition-colors ${isCoreTab ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>
-            {CORE_TABS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400">▾</span>
+        <div className="relative" ref={coreMenuRef}>
+          <button onClick={() => setCoreMenuOpen((o) => !o)}
+            className={`flex items-center gap-1 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${isCoreTab ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>
+            {CORE_GROUP_LABEL}
+            <span className="text-[10px] text-zinc-400">▾</span>
+          </button>
+          {coreMenuOpen && (
+            <div className="absolute left-0 top-full mt-1 z-10 min-w-[190px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1">
+              {CORE_TABS.map((t) => (
+                <button key={t.id} onClick={() => { setTab(t.id); setCoreMenuOpen(false); }}
+                  className={`block w-full text-left px-3 py-2 text-sm whitespace-nowrap ${tab === t.id ? "text-blue-600 dark:text-blue-400 font-medium" : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {OTHER_TABS.map((t) => {
           // Retail choice is a genuinely different business (the firm is a
