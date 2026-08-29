@@ -314,7 +314,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Metric label="Margin uplift / customer" value={fm(econ.total)} sub="per year, before sharing" positive={econ.total > 60} />
         <Metric label="Firm keeps" value={fm(biz.keepFirm)} sub={`customer gets ${fm(biz.shareCustomer)}`} />
-        <Metric label="CAC payback" value={biz.paybackMo ? Math.round(biz.paybackMo) + " mo" : "Never"} positive={!!biz.paybackMo && biz.paybackMo < 36} />
+        <Metric label="CAC payback" value={biz.paybackMo !== null ? Math.round(biz.paybackMo) + " mo" : "Never"} positive={biz.paybackMo !== null && biz.paybackMo < 36} />
         <Metric label="LTV / CAC" value={biz.ltvCac === Infinity ? "∞" : biz.ltvCac.toFixed(1) + "×"} sub={`at ${churnPct}% churn`} positive={biz.ltvCac >= 3} />
       </div>
       <div className="mb-4"><Note tone="green">
