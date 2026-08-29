@@ -157,7 +157,12 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <Row label="Capacity construct" value={CAP_CONSTRUCTS[market.capConstruct].n} />
           <Row label="Transmission allocation" value={market.transAlloc === "delivery" ? "Regulated delivery — out of reach" : "Varies by state — verify"} />
           <Row label="Customer PLC (no battery)" value={`${econ.tag.plc.toFixed(2)} kW`} hint="Peak Load Contribution, grossed up" />
-          <Row label="PLC reduction achieved" value={`${econ.dPlc.toFixed(2)} kW`} />
+          <Row label="PLC reduction achieved" value={`${econ.dPlc.toFixed(2)} kW`} hint="capped to plug-in-reachable load" />
+          <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+            That cap is real: a wall-outlet battery only displaces load it can physically reach. A central AC or electric
+            water heater on its own hardwired circuit doesn't count toward the reduction above, no matter how much power the
+            battery has spare — the same rule that decides what's servable on Plug and Play Model applies here too.
+          </p>
           <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{market.note}</p>
         </div>
       </div>
