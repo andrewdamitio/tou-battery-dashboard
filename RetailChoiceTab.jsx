@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, ReferenceLine,
+  LineChart, Line, ReferenceLine, Cell,
 } from "recharts";
 import {
   MARKETS, CAP_CONSTRUCTS, annualLoadShape, supplierEconomics, supplierBusiness,
@@ -117,6 +117,16 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
   const cliff = market.capConstruct === "1CP" || market.capConstruct === "annualCP";
   const noCapMarket = market.capConstruct === "none";
 
+  const marketTick = ({ x, y, payload }) => {
+    const isSel = payload.value === market.n.split(" (")[0];
+    return (
+      <text x={x} y={y} dy={10} textAnchor="end" transform={`rotate(-30, ${x}, ${y})`}
+        fontSize={10} fill={isSel ? "#185FA5" : "#888"} fontWeight={isSel ? 700 : 400}>
+        {payload.value}
+      </text>
+    );
+  };
+
   return (
     <div>
       <div className="mb-4"><Note tone="purple">
@@ -227,9 +237,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             Include the scarcity hedge in the totals
           </label>
           <p className="text-xs text-zinc-400 -mt-2 leading-relaxed">
-            Unchecking this zeroes out the scarcity-hedge line everywhere on this tab, including the slider above. Use it to
-            see whether the deal still works on capacity, transmission, and energy alone — the three steadier lines — without
-            leaning on a value that shows up as occasional insurance payouts, not a predictable yearly number.
+            Turn this off to see the deal without it. Capacity, transmission, and energy are steady savings; this one only
+            pays out in rare price-spike years, more like insurance than income.
           </p>
           <Note tone="amber">
             <strong>None of these are sourced yet</strong> — replace them before anything relies on them. Capacity prices
@@ -303,6 +312,11 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <Metric label="CAC payback" value={biz.paybackMo ? Math.round(biz.paybackMo) + " mo" : "Never"} positive={!!biz.paybackMo && biz.paybackMo < 36} />
         <Metric label="LTV / CAC" value={biz.ltvCac === Infinity ? "∞" : biz.ltvCac.toFixed(1) + "×"} sub={`at ${churnPct}% churn`} positive={biz.ltvCac >= 3} />
       </div>
+      <div className="mb-4"><Note tone="green">
+        <strong>What the customer actually sees:</strong> {fm(biz.shareCustomer / 12)}/mo off their bill ({fm(biz.shareCustomer)}/yr)
+        — their share of the total, set by "Shared with customer" above. Everything else on this tab is the firm's side of
+        the deal.
+      </Note></div>
       <div className="mb-4"><Note>
         <strong>CAC</strong> is what it costs to sign up one account (Acquisition cost slider, above). <strong>LTV</strong>{" "}
         is the cash one customer generates over their whole time as a customer, so LTV/CAC is "how many times over does a
@@ -352,11 +366,9 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">
           Value against coincident-peak capture
         </p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-          <Metric label="CP forecast accuracy" value={forecastHit + "%"} sub="Dispatch reliability slider, above" />
-          <Metric label="Device online" value={availability + "%"} sub="Dispatch reliability slider, above" />
-          <Metric label="Charged when called" value={socReady + "%"} sub="Dispatch reliability slider, above" />
-          <Metric label="Effective capture" value={(econ.cap.p * 100).toFixed(0) + "%"} sub="product of the three" positive={econ.cap.p >= 0.5} />
+        <div className="max-w-[200px] mb-2">
+          <Metric label="Effective capture" value={(econ.cap.p * 100).toFixed(0) + "%"}
+            sub={`${forecastHit}% × ${availability}% × ${socReady}%, from Dispatch reliability above`} positive={econ.cap.p >= 0.5} />
         </div>
         <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm mt-1">
           <Row label="Capacity + transmission value at this capture" value={fm(econ.capacitySaving + econ.transSaving)} />
@@ -385,19 +397,28 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Reference: all retail-choice markets, this household</p>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={marketCompare} margin={{ top: 25, right: 5, left: 15, bottom: 40 }}>
-            <XAxis dataKey="n" tick={{ fontSize: 10, fill: "#888" }} angle={-30} textAnchor="end" interval={0} height={60} />
+            <XAxis dataKey="n" tick={marketTick} interval={0} height={60} />
             <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v) => "$" + v}
               label={{ value: "$/yr per customer", angle: -90, position: "insideLeft", fontSize: 10, fill: "#888" }} />
             <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fm(v)} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity" />
-            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission" />
-            <Bar dataKey="scarcity" stackId="s" fill={COLORS.scarcity} name="Scarcity" />
-            <Bar dataKey="energy" stackId="s" fill={COLORS.energy} name="Energy" />
+            <Bar dataKey="capacity" stackId="s" fill={COLORS.capacity} name="Capacity">
+              {marketCompare.map((d) => <Cell key={d.id} fillOpacity={d.id === marketId ? 1 : 0.35} />)}
+            </Bar>
+            <Bar dataKey="transmission" stackId="s" fill={COLORS.transmission} name="Transmission">
+              {marketCompare.map((d) => <Cell key={d.id} fillOpacity={d.id === marketId ? 1 : 0.35} />)}
+            </Bar>
+            <Bar dataKey="scarcity" stackId="s" fill={COLORS.scarcity} name="Scarcity">
+              {marketCompare.map((d) => <Cell key={d.id} fillOpacity={d.id === marketId ? 1 : 0.35} />)}
+            </Bar>
+            <Bar dataKey="energy" stackId="s" fill={COLORS.energy} name="Energy">
+              {marketCompare.map((d) => <Cell key={d.id} fillOpacity={d.id === marketId ? 1 : 0.35} />)}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
         <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-          Each market here uses its own default prices and methodology, not whatever you've dialed in above, so this is a
+          Your current pick (<strong>{market.n.split(" (")[0]}</strong>) is the solid bar; the rest are faded for reference.
+          Each market uses its own default prices and methodology here, not whatever you've dialed in above, so this is a
           fair side-by-side. States like California, Arizona, and Florida don't appear at all — they aren't retail-choice,
           so this business can't operate there, even though their tariffs perform best on the Customer bill tab. Two
           different companies, not two products.
