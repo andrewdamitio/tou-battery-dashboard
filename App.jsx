@@ -428,10 +428,11 @@ export default function Dashboard() {
         <div className="font-data text-[11px] tracking-[0.2em] uppercase text-blue-600 dark:text-blue-400 mb-2">BTM fleet console</div>
         <h1 className="font-display text-[26px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Can plug-in batteries make money — for the company, and the customer?</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-[620px]">
-          Every tab feeds one question: at this tariff, this household, this battery, and this offer, does the homeowner actually
-          save money, and does the operator actually clear its cost of capital? Dispatches a wall-outlet battery that backfeeds
-          the home (never the grid) against an hourly tariff and load shape, then carries the result through degradation, DR
-          baseline erosion, unit economics, and a fleet ramp — no step is allowed to flatter the answer.
+          Every tab runs the same discipline on a different business model: does this actually make money once the honest math
+          is run? Customer bill, Operator economics, and Fleet & funding dispatch a wall-outlet battery that backfeeds the
+          home — never the grid — through degradation and DR baseline erosion to a fleet ramp. Retail choice model and
+          Hardwired model test different businesses entirely, each on its own terms. No step, in any of them, is allowed to
+          flatter the answer.
         </p>
       </div>
 
