@@ -156,16 +156,27 @@ export function capacityTag({ loadShape, market, grossUp = 1.15, cpHours = CP_HO
   const construct = CAP_CONSTRUCTS[market.capConstruct];
   // Metered demand during candidate CP hours, before any gross-up. Computed
   // even where no capacity market exists, because the scarcity hedge needs it.
+  // The household's PLC is set by TOTAL metered demand -- that part is real,
+  // whatever wiring the load sits behind. But a non-exporting, wall-outlet
+  // battery can only ever displace `addressable` load (the same servability
+  // ceiling the energy line already respects): it cannot reach central AC, an
+  // electric water heater, or anything else hardwired. addressableKw is that
+  // ceiling at the same peak month/hours peakKw is drawn from.
   const summer = [5, 6, 7, 8];
   let peakKw = 0;
+  let addressableKw = 0;
   summer.forEach((m) => {
     const mo = loadShape.months[m];
     if (!mo) return;
     const avg = cpHours.reduce((s, h) => s + mo.total[h], 0) / cpHours.length;
-    if (avg > peakKw) peakKw = avg;
+    if (avg > peakKw) {
+      peakKw = avg;
+      addressableKw = cpHours.reduce((s, h) => s + mo.addressable[h], 0) / cpHours.length;
+    }
   });
   return {
-    peakKw,                                   // metered kW at CP, no gross-up
+    peakKw,                                   // metered kW at CP, no gross-up -- whole household
+    addressableKw,                             // the subset of peakKw a plug-in battery can physically reach
     plc: construct.hours === 0 ? 0 : peakKw * grossUp,
     grossUp,
     applicable: construct.hours > 0,
@@ -222,9 +233,12 @@ export function supplierEconomics({
   //
   // Each coincident peak falls on a DIFFERENT day, so the battery gets a fresh
   // charge for each one. The per-CP-hour limit is therefore inverter power and
-  // one hour of stored energy — not stored energy split across five hours.
+  // one hour of stored energy — not stored energy split across five hours. And
+  // it can only ever displace addressable load: a wall-outlet battery cannot
+  // reach the central AC or water heater draw that dominates a CP hour, even
+  // if it has the inverter power and stored energy to spare.
   const tag = capacityTag({ loadShape, market });
-  const perHourKw = Math.min(invKw, avail, tag.peakKw); // metered kW removed in a CP hour
+  const perHourKw = Math.min(invKw, avail, tag.addressableKw); // metered kW removed in a CP hour
   const profileGated = plcMethod === "profile";
   const capApplicable = tag.applicable && !profileGated;
   const dPlc = capApplicable ? perHourKw * cap.p * tag.grossUp : 0;
@@ -236,8 +250,9 @@ export function supplierEconomics({
 
   // --- 4. SCARCITY: physical hedge on the short spot position.
   // Independent of the capacity construct — ERCOT has no capacity market and
-  // is the market where this line matters most.
-  const scarcityKw = Math.min(invKw, avail, tag.peakKw);
+  // is the market where this line matters most. Same addressable-load ceiling
+  // as capacity: the battery can only hedge the load it can actually reach.
+  const scarcityKw = Math.min(invKw, avail, tag.addressableKw);
   const scarcitySaving = includeScarcity
     ? scarcityHrs * scarcityKw * ((scarcityPrice - market.lmpMean) / 1000) * cap.p
     : 0;
