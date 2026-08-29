@@ -221,7 +221,16 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
             Transmission is supplier-borne in this state
           </label>
           <Slider label="Retail rate charged" value={retailR} onChange={setRetailRate} min={5} max={25} step={0.5} fmt={(v) => v + "¢/kWh"} hint="sets baseline margin, not battery value" />
-          <Slider label="Scarcity hours / yr" value={scarcityH} onChange={setScarcityHrs} min={0} max={40} fmt={(v) => v + " hrs"} hint={`at $${market.scarcityPrice}/MWh — more hours = bigger hedge`} />
+          <Slider label="Scarcity hours / yr" value={scarcityH} onChange={setScarcityHrs} min={0} max={40} fmt={(v) => v + " hrs"} hint={`at $${market.scarcityPrice}/MWh — more hours = bigger hedge`} disabled={!includeScarcity} />
+          <label className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <input type="checkbox" checked={includeScarcity} onChange={(e) => setIncludeScarcity(e.target.checked)} className="w-4 h-4" />
+            Include the scarcity hedge in the totals
+          </label>
+          <p className="text-xs text-zinc-400 -mt-2 leading-relaxed">
+            Unchecking this zeroes out the scarcity-hedge line everywhere on this tab, including the slider above. Use it to
+            see whether the deal still works on capacity, transmission, and energy alone — the three steadier lines — without
+            leaning on a value that shows up as occasional insurance payouts, not a predictable yearly number.
+          </p>
           <Note tone="amber">
             <strong>None of these are sourced yet</strong> — replace them before anything relies on them. Capacity prices
             especially: they swung roughly 10× across recent PJM auctions, so pull the real BRA (auction) result for the
@@ -237,12 +246,8 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           <Slider label="Device online" value={availability} onChange={setAvailability} min={30} max={100} step={5} fmt={(v) => v + "%"} hint="you don't own it" />
           <Slider label="Charged when called" value={socReady} onChange={setSocReady} min={30} max={100} step={5} fmt={(v) => v + "%"} />
           <Slider label="Candidate days called" value={candidateDays} onChange={setCandidateDays} min={5} max={60} fmt={(v) => v + " days"} hint="planning estimate — not yet costed below" />
-          <label className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-            <input type="checkbox" checked={includeScarcity} onChange={(e) => setIncludeScarcity(e.target.checked)} className="w-4 h-4" />
-            Count the scarcity hedge
-          </label>
           <Note>
-            These three multiply together into "Effective capture," shown with the results below — that product is what
+            The first three multiply together into "Effective capture," shown with the results below — that product is what
             actually shrinks your PLC. <strong>Device online</strong> is the hard one: failure modes — unit taken camping,
             unplugged, already drained running the AC — are <em>positively correlated</em> with the hot days that set peaks,
             so real availability on peak days likely runs below fleet-average uptime. No contract fixes that; you don't own
