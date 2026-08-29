@@ -198,6 +198,11 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
       )}
 
       {/* ---------------- everything below reacts live to the market & methodology chosen above ---------------- */}
+      <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+        Everything from here down is calculated by this model, live — not a fixed reference table. It updates instantly as
+        you change Market or PLC methodology above, or Prices and rates, Dispatch reliability, and Sharing and acquisition
+        further down.
+      </p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Metric label="Margin uplift / customer" value={fm(econ.total)} sub="per year, before sharing" positive={econ.total > 60} />
         <Metric label="Firm keeps" value={fm(biz.keepFirm)} sub={`customer gets ${fm(biz.shareCustomer)}`} />
