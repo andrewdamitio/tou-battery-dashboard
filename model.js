@@ -150,6 +150,14 @@ export function loadShapeForMonth({ counts, sq, month, plan, bat, applianceOverr
       if (impliedMonthly > 0) {
         const scale = target / impliedMonthly;
         tier.hours.forEach((h) => { total[h] *= scale; addressable[h] *= scale; });
+      } else if (target > 0 && tier.hours.length > 0) {
+        // No configured appliance runs in this tier's hours, so there's
+        // nothing to scale -- but the real bill still shows usage here.
+        // Spread it into `total` so the bill matches what was entered;
+        // leave `addressable` alone rather than assume a battery can reach
+        // load the model has no evidence is even plug-in-servable.
+        const perHour = target / days / tier.hours.length;
+        tier.hours.forEach((h) => { total[h] += perHour; });
       }
     });
   } else if (actualKwh != null) {
@@ -291,7 +299,7 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
       totalLoadShape: ls.total, blocked: ls.blocked,
       chargeLimited: wd.chargeLimited, unservedPeak: wd.unservedPeak,
     });
-    if (m === 6) { shapeSample.weekday = wd; }
+    if (m === 6) { shapeSample.weekday = wd; shapeSample.weekend = we; }
   }
 
   // Peak-window addressable load on a summer weekday — the ceiling on what any
@@ -318,13 +326,20 @@ export function annualArbitrage({ plan, bat, counts, sq, capFrac = 1, preserve =
   let cppUsd = 0;
   if (cppOn && plan.cpp) {
     const ev = cppEvents ?? plan.cpp.ev;
+    // Event duration is the plan's own peak window, not a fixed guess -- a
+    // 3-hour window (e.g. SMUD) shouldn't get credited for a 4-hour event.
+    const eventHrs = Math.max(1, peakHours.length);
     const perEventKwh = Math.min(
       bat.kw * USABLE_SOC * capFrac,
-      4 * bat.pw,
-      peakWindowLoadKwh * (4 / Math.max(1, peakHours.length)),
+      eventHrs * bat.pw,
+      peakWindowLoadKwh,
     );
     cppUsd = (ev * perEventKwh * plan.cpp.adder) / 100 * dispatchSuccess;
     usd += cppUsd;
+    // Distributed evenly across the summer months so the monthly bill chart
+    // (billComparison, which sums months[m].usd) matches this annual total --
+    // it previously only landed in the aggregate, never in any single month.
+    plan.summerMonths.forEach((m) => { if (months[m]) months[m].usd += cppUsd / plan.summerMonths.length; });
   }
 
   const bindTotal = bind.energy + bind.power + bind.charge + bind.load;

@@ -510,15 +510,27 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[["Summer peak ¢", "rPeakS"], ["Summer off ¢", "rOffS"], ["Winter peak ¢", "rPeakW"], ["Winter off ¢", "rOffW"], ["Peak start hr", "peakStart"], ["Peak end hr", "peakEnd"], ["Premium $/mo", "fixed"]].map(([lbl, k]) => (
+                {[["Summer peak ¢", "rPeakS"], ["Summer off ¢", "rOffS"], ["Winter peak ¢", "rPeakW"], ["Winter off ¢", "rOffW"], ["Peak start hr", "peakStart", true], ["Peak end hr", "peakEnd", true], ["Premium $/mo", "fixed"]].map(([lbl, k, isHour]) => (
                   <div key={k} className="flex flex-col gap-1">
                     <label className="text-xs text-zinc-500 dark:text-zinc-400">{lbl}</label>
-                    <input type="number" value={custom[k]} onChange={(e) => setCustom((p) => ({ ...p, [k]: +e.target.value || 0 }))} className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
+                    <input type="number" min={0} max={isHour ? 23 : undefined} step={isHour ? 1 : undefined} value={custom[k]}
+                      onChange={(e) => {
+                        const raw = +e.target.value || 0;
+                        const v = isHour ? Math.min(23, Math.max(0, Math.round(raw))) : Math.max(0, raw);
+                        setCustom((p) => ({ ...p, [k]: v }));
+                      }}
+                      className="p-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900" />
                   </div>
                 ))}
                 <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 self-end pb-2">
                   <input type="checkbox" checked={custom.weekdayOnly} onChange={(e) => setCustom((p) => ({ ...p, weekdayOnly: e.target.checked }))} className="w-4 h-4" />Weekdays only
                 </label>
+                {custom.peakStart === custom.peakEnd && (
+                  <p className="col-span-2 md:col-span-4 text-xs text-amber-600 dark:text-amber-400 -mt-1">
+                    Peak start and end are the same hour — that's a zero-length peak window, so this tariff is flat-rate
+                    (no TOU savings possible). Set them apart to define an actual peak period.
+                  </p>
+                )}
               </div>
             )}
             {plan.custom && (
@@ -570,7 +582,7 @@ export default function Dashboard() {
                   {plan.cpp.adder}¢/kWh on {plan.cpp.n}. A battery serving your load through the event means you never pay it.
                   That's bill avoidance, not a rebate: nobody measures you against a baseline, so nothing erodes, and it's
                   counted directly in the bill savings below, the same as ordinary TOU shaving. This is your own choice as a
-                  standalone buyer — independent of whatever an operator enrolls its fleet customers in on Operator economics.
+                  standalone buyer — independent of whatever an operator enrolls its fleet customers in on Operator Economics.
                 </Note>
                 {custCppOn && (
                   <Slider label={`${plan.cpp.n} events/yr`} value={custCppEvents ?? plan.cpp.ev} onChange={setCustCppEvents} min={plan.cpp.mn} max={plan.cpp.mx} fmt={(v) => v} hint={plan.cpp.src} />
@@ -1071,7 +1083,7 @@ export default function Dashboard() {
                 })}
                 {DR_PROGRAMS.every((p) => !((!p.st || p.st.includes(plan.st)) && (p.basis !== "avoidance" || !!plan.cpp))) && (
                   <p className="p-3 text-xs text-zinc-400 leading-relaxed">
-                    No program on this list is available on {plan.n} ({plan.st}) — see the Hardwired model tab for what's
+                    No program on this list is available on {plan.n} ({plan.st}) — see the Hardwired Model tab for what's
                     available if you go beyond a plug-in unit.
                   </p>
                 )}
@@ -1316,7 +1328,7 @@ export default function Dashboard() {
             <br /><br />
             The payoff for doing that is real. A 5 kW hardwired system earns roughly $1,100–$1,650/yr on MA
             ConnectedSolutions alone — an order of magnitude above anything a plug-in unit can reach through any program
-            modeled on Operator economics. Never underwrite plug-in economics on these numbers; they're a different business,
+            modeled on Operator Economics. Never underwrite plug-in economics on these numbers; they're a different business,
             not a bigger version of this one.
           </Note></div>
 

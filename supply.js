@@ -21,7 +21,7 @@
 // of this is used for a decision.
 // ---------------------------------------------------------------------------
 
-import { dispatchDay, loadShapeForMonth, dayCounts, RTE } from "./model.js";
+import { dispatchDay, loadShapeForMonth, dayCounts, RTE, chargeWindow, paybackYear } from "./model.js";
 
 export const CAP_CONSTRUCTS = {
   "5CP": { n: "PJM 5CP", hours: 5, desc: "Average demand across the five highest RTO-wide load hours of the prior summer. Missing one costs 20% of the reduction, not all of it." },
@@ -162,18 +162,22 @@ export function capacityTag({ loadShape, market, grossUp = 1.15, cpHours = CP_HO
   // ceiling the energy line already respects): it cannot reach central AC, an
   // electric water heater, or anything else hardwired. addressableKw is that
   // ceiling at the same peak month/hours peakKw is drawn from.
-  const summer = [5, 6, 7, 8];
+  // Scanned across all 12 months, not just summer: a 5CP/1CP market's peak is
+  // overwhelmingly a summer afternoon in practice, but hardcoding that missed
+  // May (SYNTH_PLAN treats it as summer for load-shape purposes; this loop
+  // didn't) and was flatly wrong for annualCP (ISO-NE), whose own definition
+  // is "the annual system peak hour," not a summer-only one.
   let peakKw = 0;
   let addressableKw = 0;
-  summer.forEach((m) => {
+  for (let m = 0; m < 12; m++) {
     const mo = loadShape.months[m];
-    if (!mo) return;
+    if (!mo) continue;
     const avg = cpHours.reduce((s, h) => s + mo.total[h], 0) / cpHours.length;
     if (avg > peakKw) {
       peakKw = avg;
       addressableKw = cpHours.reduce((s, h) => s + mo.addressable[h], 0) / cpHours.length;
     }
-  });
+  }
   return {
     peakKw,                                   // metered kW at CP, no gross-up -- whole household
     addressableKw,                             // the subset of peakKw a plug-in battery can physically reach
@@ -220,10 +224,12 @@ export function supplierEconomics({
   loadShape.months.forEach((mo) => {
     const lmp = wholesaleShape(market, mo.m);
     const cents = lmp.map((p) => p / 10); // $/MWh -> ¢/kWh
-    const off = Math.min(...cents);
+    // Real cheap-hour window, not a fixed guess -- same chargeWindow() the
+    // tariff-side dispatch (model.js) already uses for this exact purpose.
+    const cw = chargeWindow(cents);
     const r = dispatchDay({
       rateArr: cents, loadArr: mo.addressable, invKw, availKwh: avail,
-      chargeRate: off, chargeKw: bat.ck, chargeHrs: 8,
+      chargeRate: cw.rate, chargeKw: bat.ck, chargeHrs: cw.hours,
     });
     energySaving += (r.valueUSD * mo.days.total);
     shiftedKwh += r.discharged * mo.days.total;
@@ -326,16 +332,11 @@ export function supplierBusiness({ econ, sharePct, cac, softwareMo, churnPct, ye
 
   const forfeited = (econ.capacitySaving + econ.transSaving) * (1 - sharePct / 100) * (1 - retainFrac);
 
-  let cum = -cac, paybackMo = null, everNegative = cum < 0;
-  for (let i = 1; i < flows.length && paybackMo === null; i++) {
-    const prev = cum; cum += flows[i];
-    if (prev < 0 && cum >= 0) paybackMo = (i - 1 + (-prev) / (cum - prev)) * 12;
-    if (cum < 0) everNegative = true;
-  }
-  // Cumulative never went negative (e.g. cac=0 with a profitable year one) --
-  // paid back immediately, not "never." The crossing check above can't catch
-  // this since it only fires on a negative-to-non-negative transition.
-  if (paybackMo === null && !everNegative) paybackMo = 0;
+  // Same crossing-detection algorithm as model.js's paybackYear (immediate-
+  // payback and divide-by-zero edge cases already handled there) -- reused
+  // instead of re-derived, in years, then converted to months.
+  const paybackYr = paybackYear(flows);
+  const paybackMo = paybackYr === Infinity ? null : paybackYr * 12;
 
   const ltv = rows.reduce((s, r) => s + r.net, 0) + cac;
   return { rows, flows, shareCustomer, keepFirm, forfeited, paybackMo, ltv, ltvCac: cac > 0 ? ltv / cac : Infinity };

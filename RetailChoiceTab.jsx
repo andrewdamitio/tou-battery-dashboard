@@ -23,7 +23,7 @@ function Metric({ label, value, sub, positive }) {
 function Row({ label, value, hint }) {
   return (
     <div className="flex justify-between py-1 text-sm gap-4">
-      <span className="text-zinc-500 dark:text-zinc-400">{label}{hint && <span className="text-zinc-400 text-xs ml-1.5">{hint}</span>}</span>
+      <span className="text-zinc-500 dark:text-zinc-400">{label}{hint && <span className="text-zinc-400 dark:text-zinc-500 text-xs ml-1.5">{hint}</span>}</span>
       <span className="font-medium text-zinc-900 dark:text-zinc-100 text-right whitespace-nowrap">{value}</span>
     </div>
   );
@@ -149,7 +149,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
       {/* ---------------- market & methodology: chosen first, everything below reacts to it ---------------- */}
       <div className="mb-5">
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">Market</p>
-        <select value={marketId} onChange={(e) => { setMarketId(e.target.value); setCapPrice(null); setTransRate(null); setRetailRate(null); setScarcityHrs(null); setPlcMethod(MARKETS.find((m) => m.id === e.target.value).plcDefault); }}
+        <select value={marketId} onChange={(e) => { setMarketId(e.target.value); setCapPrice(null); setTransRate(null); setTransBorne(true); setRetailRate(null); setScarcityHrs(null); setPlcMethod(MARKETS.find((m) => m.id === e.target.value).plcDefault); }}
           className="w-full p-3 text-sm rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 mb-2">
           {MARKETS.map((m) => <option key={m.id} value={m.id}>{m.n} — {CAP_CONSTRUCTS[m.capConstruct].n}</option>)}
         </select>
@@ -425,7 +425,7 @@ export default function RetailChoiceTab({ counts, sq, bat, applianceOverrides, m
           Your current pick (<strong>{market.n.split(" (")[0]}</strong>) is the solid bar; the rest are faded for reference.
           Each market uses its own default prices and methodology here, not whatever you've dialed in above, so this is a
           fair side-by-side. States like California, Arizona, and Florida don't appear at all — they aren't retail-choice,
-          so this business can't operate there, even though their tariffs perform best on the Customer bill tab. Two
+          so this business can't operate there, even though their tariffs perform best on the Customer Bill tab. Two
           different companies, not two products.
         </p>
       </div>
