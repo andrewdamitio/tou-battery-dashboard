@@ -62,8 +62,24 @@ function Note({ children, tone = "zinc" }) {
   return <div className={`rounded-lg p-3 text-xs leading-relaxed ${tones[tone]}`}>{children}</div>;
 }
 
+const CORE_TABS = [
+  { id: "model", label: "Customer bill" },
+  { id: "operator", label: "Operator economics" },
+  { id: "fleet", label: "Fleet & funding" },
+];
+const OTHER_TABS = [
+  { id: "retail", label: "Retail choice model" },
+  { id: "programs", label: "Hardwired model" },
+];
+
 export default function Dashboard() {
   const [tab, setTab] = useState("model");
+  // Customer bill / Operator economics / Fleet & funding are one model, viewed
+  // three ways -- remember which of the three was last open so switching away
+  // to Retail choice or Hardwired and back doesn't reset the dropdown to the top.
+  const [lastCoreTab, setLastCoreTab] = useState("model");
+  const isCoreTab = CORE_TABS.some((t) => t.id === tab);
+  useEffect(() => { if (isCoreTab) setLastCoreTab(tab); }, [tab, isCoreTab]);
 
   // --- consumer inputs
   const [planId, setPlanId] = useState("sdr");
@@ -414,14 +430,6 @@ export default function Dashboard() {
   const dealHo = op.hoYr1 > 0;
   const dealOp = op.opIRR !== null && op.opIRR * 100 > discount;
 
-  const tabs = [
-    { id: "model", label: "Customer bill" },
-    { id: "operator", label: "Operator economics" },
-    { id: "fleet", label: "Fleet & funding" },
-    { id: "retail", label: "Retail choice model" },
-    { id: "programs", label: "Hardwired model" },
-  ];
-
   return (
     <div className="max-w-[860px] mx-auto pb-16 px-1">
       <div className="mb-6 pt-2">
@@ -436,8 +444,19 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="flex gap-0.5 border-b border-zinc-200 dark:border-zinc-700 mb-4 flex-wrap">
-        {tabs.map((t) => {
+      <div className="flex gap-0.5 border-b border-zinc-200 dark:border-zinc-700 mb-4 flex-wrap items-center">
+        {/* Customer bill, Operator economics, and Fleet & funding are three views of one
+            model, not three businesses -- grouped under a single dropdown tab instead of
+            three separate ones. Retail choice and Hardwired are genuinely different
+            businesses, so they stay as their own tabs. */}
+        <div className="relative">
+          <select value={isCoreTab ? tab : lastCoreTab} onChange={(e) => setTab(e.target.value)}
+            className={`appearance-none bg-transparent cursor-pointer px-4 py-3 pr-7 text-sm font-medium border-b-2 -mb-px transition-colors ${isCoreTab ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>
+            {CORE_TABS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400">▾</span>
+        </div>
+        {OTHER_TABS.map((t) => {
           // Retail choice is a genuinely different business (the firm is a
           // supplier, not a battery owner) -- a distinct accent instead of
           // the shared blue keeps that from blending in as just another tab.
